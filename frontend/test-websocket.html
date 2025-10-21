@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>Backpack WebSocket Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="messages"></div>
+
+    <script>
+        const ws = new WebSocket('wss://ws.backpack.exchange/');
+        const status = document.getElementById('status');
+        const messages = document.getElementById('messages');
+
+        ws.onopen = function() {
+            status.textContent = 'Connected!';
+            console.log('Connected to Backpack WebSocket');
+            
+            // Test subscription
+            const subscribeMsg = {
+                method: "SUBSCRIBE",
+                params: ["ticker.SOL_USD"]
+            };
+            
+            ws.send(JSON.stringify(subscribeMsg));
+            console.log('Sent subscription:', subscribeMsg);
+        };
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            console.log('Received:', data);
+            
+            const div = document.createElement('div');
+            div.textContent = JSON.stringify(data, null, 2);
+            messages.appendChild(div);
+        };
+
+        ws.onerror = function(error) {
+            console.error('WebSocket error:', error);
+            status.textContent = 'Error: ' + error;
+        };
+
+        ws.onclose = function(event) {
+            console.log('WebSocket closed:', event.code, event.reason);
+            status.textContent = 'Disconnected: ' + event.reason;
+        };
+    </script>
+</body>
+</html>

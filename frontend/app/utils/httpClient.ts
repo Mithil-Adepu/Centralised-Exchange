@@ -96,13 +96,19 @@ export async function loginUser(email: string, password: string): Promise<AuthPa
   return response.data;
 }
 
-export async function registerUser(email: string, password: string): Promise<AuthPayload> {
-  const response = await axios.post<AuthPayload>(`${AUTH_BASE_URL}/register`, {
-    email,
-    password,
-  });
+export async function registerUser(
+  email: string,
+  password: string
+): Promise<AuthPayload & { requiresVerification?: boolean }> {
+  const response = await axios.post<AuthPayload & { requiresVerification?: boolean }>(
+    `${AUTH_BASE_URL}/register`,
+    { email, password }
+  );
 
-  storeAccessToken(response.data.accessToken);
+  // Only store token if account is auto-logged in (no verification required)
+  if (response.data.accessToken) {
+    storeAccessToken(response.data.accessToken);
+  }
   return response.data;
 }
 
@@ -273,6 +279,24 @@ export async function createOrder(
   });
 }
 
+export async function getOpenOrders(market: string): Promise<any[]> {
+  return authRequest<any[]>({
+    method: "GET",
+    url: `${BASE_URL}/order/open`,
+    params: {
+      market
+    }
+  });
+}
+
+export async function cancelOrder(orderId: string, market: string): Promise<any> {
+  return authRequest<any>({
+    method: "DELETE",
+    url: `${BASE_URL}/order`,
+    data: { orderId, market },
+  });
+}
+
 export async function onRamp(amount: number): Promise<{ success: boolean; message: string }> {
   return authRequest<{ success: boolean; message: string }>({
     method: "POST",
@@ -281,4 +305,29 @@ export async function onRamp(amount: number): Promise<{ success: boolean; messag
       amount,
     },
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   OTP / Email Verification Endpoints
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function verifyEmailOTP(email: string, otp: string): Promise<{ user: AuthUser; accessToken: string; expiresIn: string }> {
+  const response = await axios.post(`${AUTH_BASE_URL}/verify-otp`, { email, otp }, { withCredentials: true });
+  storeAccessToken(response.data.accessToken);
+  return response.data;
+}
+
+export async function resendOTP(email: string): Promise<{ sent: boolean }> {
+  const response = await axios.post(`${AUTH_BASE_URL}/resend-otp`, { email });
+  return response.data;
+}
+
+export async function forgotPassword(email: string): Promise<{ sent: boolean }> {
+  const response = await axios.post(`${AUTH_BASE_URL}/forgot-password`, { email });
+  return response.data;
+}
+
+export async function resetPassword(email: string, otp: string, newPassword: string): Promise<{ success: boolean }> {
+  const response = await axios.post(`${AUTH_BASE_URL}/reset-password`, { email, otp, newPassword });
+  return response.data;
 }

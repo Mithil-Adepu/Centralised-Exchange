@@ -3,7 +3,6 @@ import { UserManager } from "./UserManager";
 import { TicketStore } from "./TicketStore";
 
 const WS_PORT = Number(process.env.WS_PORT) || 3001;
-const AUTH_TIMEOUT_MS = 5000;
 const AUTH_MESSAGE_MAX_BYTES = 1024;
 const CONNECTION_WINDOW_MS = 60_000;
 const MAX_CONNECTIONS_PER_WINDOW = 60;
@@ -79,6 +78,8 @@ const wss = new WebSocketServer({ port: WS_PORT });
 wss.on("connection", (ws, req) => {
     console.log('🔌 New WebSocket connection');
 
+    UserManager.getInstance().addUser(ws, "guest");
+
     const clientIp = getClientIp(req);
     if (!checkConnectionLimit(clientIp)) {
         ws.send(JSON.stringify({ error: "Too many connection attempts" }));
@@ -86,63 +87,40 @@ wss.on("connection", (ws, req) => {
         return;
     }
 
-    const authTimeout = setTimeout(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ error: "Authentication timeout" }));
-            ws.close(4001, "Authentication timeout");
-        }
-    }, AUTH_TIMEOUT_MS);
-
-    ws.once("message", async (rawMessage) => {
+    ws.on("message", async (rawMessage) => {
         try {
             if (rawDataByteLength(rawMessage) > AUTH_MESSAGE_MAX_BYTES) {
-                clearTimeout(authTimeout);
-                ws.send(JSON.stringify({ error: "Auth payload too large" }));
-                ws.close(4001, "Invalid auth payload");
+                ws.send(JSON.stringify({ error: "Payload too large" }));
                 return;
             }
 
             const parsedMessage: TicketMessage = JSON.parse(rawDataToString(rawMessage));
             const ticket = parsedMessage.ticket || parsedMessage.params?.ticket;
 
-            if (parsedMessage.method !== "AUTH" || !ticket) {
-                clearTimeout(authTimeout);
-                ws.send(JSON.stringify({ error: "First message must include auth ticket" }));
-                ws.close(4001, "Invalid auth message");
-                return;
+            if (parsedMessage.method === "AUTH" && ticket) {
+                if (!/^[0-9a-fA-F-]{36}$/.test(ticket)) {
+                    ws.send(JSON.stringify({ error: "Invalid ticket format" }));
+                    return;
+                }
+
+                const payload = await TicketStore.getInstance().consume(ticket);
+                if (!payload) {
+                    ws.send(JSON.stringify({ error: "Invalid or expired ticket" }));
+                    return;
+                }
+
+                ws.send(JSON.stringify({
+                    type: "AUTH_SUCCESS",
+                    userId: payload.userId,
+                }));
             }
-
-            if (!/^[0-9a-fA-F-]{36}$/.test(ticket)) {
-                clearTimeout(authTimeout);
-                ws.send(JSON.stringify({ error: "Invalid ticket format" }));
-                ws.close(4001, "Invalid ticket");
-                return;
-            }
-
-            const payload = await TicketStore.getInstance().consume(ticket);
-            if (!payload) {
-                clearTimeout(authTimeout);
-                ws.send(JSON.stringify({ error: "Invalid or expired ticket" }));
-                ws.close(4001, "Invalid ticket");
-                return;
-            }
-
-            clearTimeout(authTimeout);
-            UserManager.getInstance().addUser(ws, payload.userId);
-
-            ws.send(JSON.stringify({
-                type: "AUTH_SUCCESS",
-                userId: payload.userId,
-            }));
         } catch (error) {
-            clearTimeout(authTimeout);
-            ws.send(JSON.stringify({ error: "Invalid auth payload" }));
-            ws.close(4001, "Invalid auth payload");
+            ws.send(JSON.stringify({ error: "Invalid message payload" }));
         }
     });
 
     ws.on("close", () => {
-        clearTimeout(authTimeout);
+        // Subscription cleanup is handled by UserManager.
     });
 });
 

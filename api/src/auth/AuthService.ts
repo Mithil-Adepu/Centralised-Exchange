@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt, { JwtPayload, SignOptions } from "jsonwebtoken";
 import { AuthRedis } from "./AuthRedis";
+import { EmailService } from "./EmailService";
 import {
     assignRole,
     countSessionsByUser,
@@ -48,6 +49,8 @@ const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || "dev-refresh-se
 const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || "15m";
 const REFRESH_TOKEN_TTL_SECONDS = Number(process.env.REFRESH_TOKEN_TTL_SECONDS || 60 * 60 * 24 * 7);
 const WS_TICKET_TTL_SECONDS = 60;
+const OTP_TTL_SECONDS = 300; // 5 minutes
+const OTP_MAX_ATTEMPTS = 5;  // Max verification attempts before lockout
 
 /** Maximum concurrent sessions per user (exchange standard: 3) */
 const MAX_SESSIONS_PER_USER = 3;
@@ -129,16 +132,16 @@ export class AuthService {
         });
 
         await assignRole(user.id, "user");
-        const roles = await getUserRoles(user.id);
 
-        const tokens = await this.issueTokens(user, roles, meta);
+        // Send verification OTP
+        await this.sendVerificationOTP(normalizedEmail);
+
         return {
             user: {
                 id: user.id,
                 email: user.email,
-                roles,
             },
-            ...tokens,
+            requiresVerification: true,
         };
     }
 
@@ -298,6 +301,132 @@ export class AuthService {
         await deleteSession(sessionId);
     }
 
+    /* ─── Email Verification OTP ─── */
+
+    public async sendVerificationOTP(email: string) {
+        const normalizedEmail = normalizeEmail(email);
+        const emailService = EmailService.getInstance();
+        const otp = emailService.generateOTP();
+
+        const client = await AuthRedis.getInstance().getClient();
+        await client.set(this.otpKey(normalizedEmail, "verify"), otp, { EX: OTP_TTL_SECONDS });
+        await client.del(this.otpAttemptsKey(normalizedEmail, "verify"));
+
+        await emailService.sendOTP(normalizedEmail, otp, "verify");
+        return { sent: true };
+    }
+
+    public async verifyEmailOTP(email: string, otp: string, meta?: { ip?: string; userAgent?: string }) {
+        const normalizedEmail = normalizeEmail(email);
+        const client = await AuthRedis.getInstance().getClient();
+
+        // Rate limit attempts
+        const attemptsKey = this.otpAttemptsKey(normalizedEmail, "verify");
+        const attempts = await client.incr(attemptsKey);
+        if (attempts === 1) await client.expire(attemptsKey, OTP_TTL_SECONDS);
+        if (attempts > OTP_MAX_ATTEMPTS) {
+            throw new Error("Too many attempts. Please request a new code.");
+        }
+
+        const storedOtp = await client.get(this.otpKey(normalizedEmail, "verify"));
+        if (!storedOtp || storedOtp !== otp.trim()) {
+            throw new Error("Invalid or expired verification code");
+        }
+
+        // Mark email as verified
+        const user = await getUserByEmail(normalizedEmail);
+        if (!user) throw new Error("User not found");
+
+        await this.markEmailVerified(user.id);
+
+        // Clean up OTP keys
+        await client.del(this.otpKey(normalizedEmail, "verify"));
+        await client.del(attemptsKey);
+
+        // Issue tokens (auto-login after verification)
+        const roles = await getUserRoles(user.id);
+        const tokens = await this.issueTokens(user, roles, meta);
+
+        return {
+            user: {
+                id: user.id,
+                email: user.email,
+                roles,
+            },
+            ...tokens,
+        };
+    }
+
+    /* ─── Forgot Password / Reset ─── */
+
+    public async sendResetOTP(email: string) {
+        const normalizedEmail = normalizeEmail(email);
+        const user = await getUserByEmail(normalizedEmail);
+        if (!user) {
+            // Don't reveal whether email exists
+            return { sent: true };
+        }
+
+        const emailService = EmailService.getInstance();
+        const otp = emailService.generateOTP();
+
+        const client = await AuthRedis.getInstance().getClient();
+        await client.set(this.otpKey(normalizedEmail, "reset"), otp, { EX: OTP_TTL_SECONDS });
+        await client.del(this.otpAttemptsKey(normalizedEmail, "reset"));
+
+        await emailService.sendOTP(normalizedEmail, otp, "reset");
+        return { sent: true };
+    }
+
+    public async resetPassword(email: string, otp: string, newPassword: string) {
+        const normalizedEmail = normalizeEmail(email);
+        this.validateCredentials(normalizedEmail, newPassword);
+
+        const client = await AuthRedis.getInstance().getClient();
+
+        // Rate limit
+        const attemptsKey = this.otpAttemptsKey(normalizedEmail, "reset");
+        const attempts = await client.incr(attemptsKey);
+        if (attempts === 1) await client.expire(attemptsKey, OTP_TTL_SECONDS);
+        if (attempts > OTP_MAX_ATTEMPTS) {
+            throw new Error("Too many attempts. Please request a new code.");
+        }
+
+        const storedOtp = await client.get(this.otpKey(normalizedEmail, "reset"));
+        if (!storedOtp || storedOtp !== otp.trim()) {
+            throw new Error("Invalid or expired reset code");
+        }
+
+        const user = await getUserByEmail(normalizedEmail);
+        if (!user) throw new Error("User not found");
+
+        // Update password
+        await this.updatePassword(user.id, newPassword);
+
+        // Clean up
+        await client.del(this.otpKey(normalizedEmail, "reset"));
+        await client.del(attemptsKey);
+
+        return { success: true };
+    }
+
+    private async markEmailVerified(userId: string) {
+        const { pool } = await import("../db/pool");
+        await pool.query(
+            "UPDATE users SET email_verified = true, updated_at = NOW() WHERE id = $1",
+            [userId]
+        );
+    }
+
+    private async updatePassword(userId: string, newPassword: string) {
+        const { pool } = await import("../db/pool");
+        const hash = await bcrypt.hash(newPassword, 12);
+        await pool.query(
+            "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+            [hash, userId]
+        );
+    }
+
     /* ─── Private: Token Issuance ─── */
 
     private async issueTokens(user: DbUser, roles: string[], meta?: { ip?: string; userAgent?: string }) {
@@ -450,5 +579,13 @@ export class AuthService {
 
     private wsTicketKey(ticket: string) {
         return `ws:ticket:${ticket}`;
+    }
+
+    private otpKey(email: string, purpose: string) {
+        return `otp:${purpose}:${email}`;
+    }
+
+    private otpAttemptsKey(email: string, purpose: string) {
+        return `otp:attempts:${purpose}:${email}`;
     }
 }

@@ -19,8 +19,8 @@ RUN cd engine && npm run build
 FROM node:18-alpine
 WORKDIR /app
 
-COPY --from=builder /build/shared/dist ./shared/dist
-COPY --from=builder /build/shared/package.json ./shared/
+COPY --from=builder /build/shared/dist /shared/dist
+COPY --from=builder /build/shared/package.json /shared/
 COPY --from=builder /build/engine/dist ./dist
 COPY --from=builder /build/engine/node_modules ./node_modules
 COPY --from=builder /build/engine/package.json ./

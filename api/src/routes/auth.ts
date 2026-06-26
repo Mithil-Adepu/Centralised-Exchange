@@ -108,24 +108,20 @@ authRouter.post("/register", authAttemptLimiter, async (req, res) => {
     try {
         const email = parseRequiredString(req.body?.email, "email");
         const password = parseRequiredString(req.body?.password, "password");
-        const meta = getRequestMeta(req);
 
-        const payload = await AuthService.getInstance().register(email, password, meta);
-        setRefreshCookie(res, payload.refreshToken, AuthService.getInstance().getRefreshTtlSeconds());
+        const payload = await AuthService.getInstance().register(email, password);
 
         auditLog({
             event: "auth.register",
             requestId: req.requestId,
-            userId: payload.user.id,
             ip: req.ip,
             success: true,
-            details: { email: payload.user.email },
+            details: { email },
         });
 
         return res.status(201).json({
             user: payload.user,
-            accessToken: payload.accessToken,
-            expiresIn: payload.expiresIn,
+            requiresVerification: true,
         });
     } catch (error: any) {
         auditLog({
@@ -237,6 +233,114 @@ authRouter.post("/logout", async (req, res) => {
 
     clearRefreshCookie(res);
     return res.json({ success: true });
+});
+
+/* ─── Verify Email OTP (completes signup) ─── */
+authRouter.post("/verify-otp", authAttemptLimiter, async (req, res) => {
+    try {
+        const email = parseRequiredString(req.body?.email, "email");
+        const otp = parseRequiredString(req.body?.otp, "otp");
+        const meta = getRequestMeta(req);
+
+        const payload = await AuthService.getInstance().verifyEmailOTP(email, otp, meta);
+        setRefreshCookie(res, payload.refreshToken, AuthService.getInstance().getRefreshTtlSeconds());
+
+        auditLog({
+            event: "auth.verify-otp",
+            requestId: req.requestId,
+            userId: payload.user.id,
+            ip: req.ip,
+            success: true,
+        });
+
+        return res.json({
+            user: payload.user,
+            accessToken: payload.accessToken,
+            expiresIn: payload.expiresIn,
+        });
+    } catch (error: any) {
+        auditLog({
+            event: "auth.verify-otp",
+            level: "warn",
+            requestId: req.requestId,
+            ip: req.ip,
+            success: false,
+            details: { message: error?.message || "unknown" },
+        });
+        return res.status(400).json({ error: error?.message || "Verification failed" });
+    }
+});
+
+/* ─── Resend Verification OTP ─── */
+authRouter.post("/resend-otp", authAttemptLimiter, async (req, res) => {
+    try {
+        const email = parseRequiredString(req.body?.email, "email");
+        await AuthService.getInstance().sendVerificationOTP(email);
+
+        auditLog({
+            event: "auth.resend-otp",
+            requestId: req.requestId,
+            ip: req.ip,
+            success: true,
+            details: { email },
+        });
+
+        return res.json({ sent: true });
+    } catch (error: any) {
+        return res.status(400).json({ error: error?.message || "Failed to send OTP" });
+    }
+});
+
+/* ─── Forgot Password ─── */
+authRouter.post("/forgot-password", authAttemptLimiter, async (req, res) => {
+    try {
+        const email = parseRequiredString(req.body?.email, "email");
+        await AuthService.getInstance().sendResetOTP(email);
+
+        auditLog({
+            event: "auth.forgot-password",
+            requestId: req.requestId,
+            ip: req.ip,
+            success: true,
+            details: { email },
+        });
+
+        // Always return success (don't reveal if email exists)
+        return res.json({ sent: true });
+    } catch (error: any) {
+        return res.json({ sent: true }); // Still don't reveal
+    }
+});
+
+/* ─── Reset Password ─── */
+authRouter.post("/reset-password", authAttemptLimiter, async (req, res) => {
+    try {
+        const email = parseRequiredString(req.body?.email, "email");
+        const otp = parseRequiredString(req.body?.otp, "otp");
+        const newPassword = parseRequiredString(req.body?.newPassword, "newPassword");
+
+        await AuthService.getInstance().resetPassword(email, otp, newPassword);
+
+        auditLog({
+            event: "auth.reset-password",
+            requestId: req.requestId,
+            ip: req.ip,
+            success: true,
+            details: { email },
+        });
+
+        return res.json({ success: true });
+    } catch (error: any) {
+        auditLog({
+            event: "auth.reset-password",
+            level: "warn",
+            requestId: req.requestId,
+            ip: req.ip,
+            success: false,
+            details: { message: error?.message || "unknown" },
+        });
+        return res.status(400).json({ error: error?.message || "Reset failed" });
+    }
 });
 
 /* ─── Current User ─── */

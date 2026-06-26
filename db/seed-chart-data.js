@@ -23,8 +23,8 @@ async function seedChartData() {
         const now = new Date();
         const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
         
-        const markets = ['SOL_USDC', 'BTC_USDC', 'ETH_USDC'];
-        const basePrices = { 'SOL_USDC': 100, 'BTC_USDC': 50000, 'ETH_USDC': 3000 };
+        const markets = ['TATA_INR', 'SOL_USDC', 'BTC_USDC', 'ETH_USDC'];
+        const basePrices = { 'TATA_INR': 850, 'SOL_USDC': 100, 'BTC_USDC': 50000, 'ETH_USDC': 3000 };
         
         for (const market of markets) {
             console.log(`📊 Generating data for ${market}...`);

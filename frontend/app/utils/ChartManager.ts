@@ -30,8 +30,8 @@ export class ChartManager {
 
       // Create chart with v4 API
       const chart = createChart(ref, {
-        width: ref.clientWidth,
-        height: ref.clientHeight,
+        width: ref.clientWidth || ref.offsetWidth || 800,
+        height: ref.clientHeight || ref.offsetHeight || 420,
         layout: {
           background: {
             type: ColorType.Solid,
@@ -165,9 +165,11 @@ export class ChartManager {
       log('📊 Updating chart with:', updatedPrice);
       
       // Use the provided time or current time
-      const updateTime = updatedPrice.time ? 
-        Math.floor(updatedPrice.time / 1000) : 
-        Math.floor(Date.now() / 1000);
+      const updateTime = updatedPrice.time
+        ? (updatedPrice.time > 1e12
+            ? Math.floor(updatedPrice.time / 1000)
+            : Math.floor(updatedPrice.time))
+        : Math.floor(Date.now() / 1000);
 
       // Update the current candle with new price data
       this.candleSeries.update({

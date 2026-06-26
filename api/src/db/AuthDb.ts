@@ -4,6 +4,7 @@ export type DbUser = {
     id: string;
     email: string;
     passwordHash: string;
+    emailVerified: boolean;
     status: string;
     createdAt: Date;
     updatedAt: Date;
@@ -25,6 +26,7 @@ function mapUser(row: any): DbUser {
         id: row.id,
         email: row.email,
         passwordHash: row.password_hash,
+        emailVerified: Boolean(row.email_verified),
         status: row.status,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -49,7 +51,7 @@ function mapSession(row: any): DbSession {
 
 export async function getUserByEmail(email: string): Promise<DbUser | null> {
     const result = await pool.query(
-        "SELECT id, email, password_hash, status, created_at, updated_at FROM users WHERE email = $1",
+        "SELECT id, email, password_hash, email_verified, status, created_at, updated_at FROM users WHERE email = $1",
         [email]
     );
 
@@ -62,7 +64,7 @@ export async function getUserByEmail(email: string): Promise<DbUser | null> {
 
 export async function getUserById(userId: string): Promise<DbUser | null> {
     const result = await pool.query(
-        "SELECT id, email, password_hash, status, created_at, updated_at FROM users WHERE id = $1",
+        "SELECT id, email, password_hash, email_verified, status, created_at, updated_at FROM users WHERE id = $1",
         [userId]
     );
 
@@ -75,10 +77,9 @@ export async function getUserById(userId: string): Promise<DbUser | null> {
 
 export async function createUser(user: { id: string; email: string; passwordHash: string }) {
     const result = await pool.query(
-        "INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3) RETURNING id, email, password_hash, status, created_at, updated_at",
+        "INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3) RETURNING id, email, password_hash, email_verified, status, created_at, updated_at",
         [user.id, user.email, user.passwordHash]
     );
-
     return mapUser(result.rows[0]);
 }
 

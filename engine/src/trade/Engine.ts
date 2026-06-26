@@ -15,7 +15,7 @@ import {
 
 const SNAPSHOT_VERSION = 2;
 // Scaled integer math (see docs/adr/0001-shared-types-and-precision.md).
-export const BASE_CURRENCY = "INR";
+export const BASE_CURRENCY = "USDC";
 
 interface UserBalance {
     [key: string]: {
@@ -87,7 +87,7 @@ export class Engine {
                 this.setBaseBalances();
             }
         } else {
-            this.orderbooks = [new Orderbook(`TATA`, [], [], 0, 0)];
+            this.orderbooks = [new Orderbook(`SOL`, [], [], 0, 0)];
             this.setBaseBalances();
         }
         // Snapshot every 30s (was 3s) — only if data changed
@@ -621,13 +621,25 @@ export class Engine {
     }
 
     setBaseBalances() {
-        // Frontend test users
+        // Test user: trader@cex.io — huge balance for testing
+        this.balances.set("9", {
+            [BASE_CURRENCY]: {
+                available: scaleFromNumber(1000000),   // 1M USDC
+                locked: 0
+            },
+            "SOL": {
+                available: scaleFromNumber(10000),     // 10K SOL
+                locked: 0
+            }
+        });
+
+        // Legacy frontend test users
         this.balances.set("1", {
             [BASE_CURRENCY]: {
                 available: scaleFromNumber(10000000),
                 locked: 0
             },
-            "TATA": {
+            "SOL": {
                 available: scaleFromNumber(10000000),
                 locked: 0
             }
@@ -638,19 +650,19 @@ export class Engine {
                 available: scaleFromNumber(10000000),
                 locked: 0
             },
-            "TATA": {
+            "SOL": {
                 available: scaleFromNumber(10000000),
                 locked: 0
             }
         });
 
-        // Market Maker virtual traders (larger balances for high-frequency trading)
+        // Market Maker virtual traders
         this.balances.set("5", {
             [BASE_CURRENCY]: {
                 available: scaleFromNumber(50000000),
                 locked: 0
             },
-            "TATA": {
+            "SOL": {
                 available: scaleFromNumber(50000000),
                 locked: 0
             }
@@ -661,7 +673,7 @@ export class Engine {
                 available: scaleFromNumber(50000000),
                 locked: 0
             },
-            "TATA": {
+            "SOL": {
                 available: scaleFromNumber(50000000),
                 locked: 0
             }
@@ -672,7 +684,7 @@ export class Engine {
                 available: scaleFromNumber(50000000),
                 locked: 0
             },
-            "TATA": {
+            "SOL": {
                 available: scaleFromNumber(50000000),
                 locked: 0
             }
@@ -683,7 +695,7 @@ export class Engine {
                 available: scaleFromNumber(50000000),
                 locked: 0
             },
-            "TATA": {
+            "SOL": {
                 available: scaleFromNumber(50000000),
                 locked: 0
             }

@@ -5,11 +5,16 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const nextConfig = {
-    output: 'standalone',
-    reactStrictMode: true,
+    // 'standalone' is required for Docker (copies node_modules for server.js).
+    // Set BUILD_STANDALONE=true in the Dockerfile; leave unset for fast local dev.
+    ...(process.env.BUILD_STANDALONE === 'true' ? { output: 'standalone' } : {}),
+
+    // NOTE: Re-enable for production to catch React double-effect bugs:
+    // reactStrictMode: true,
+
     poweredByHeader: false,
     compress: true,
-    
+
     // Fix workspace root detection (silences the multiple lockfiles warning)
     outputFileTracingRoot: __dirname,
     

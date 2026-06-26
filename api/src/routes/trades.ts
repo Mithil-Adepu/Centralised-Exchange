@@ -35,7 +35,7 @@ tradesRouter.get("/", async (req, res) => {
                 volume as quantity,
                 currency_code as market,
                 is_buyer_maker
-            FROM tata_prices
+            FROM sol_usdc_prices
             WHERE currency_code = $1
             ORDER BY time DESC
             LIMIT $2

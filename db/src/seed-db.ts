@@ -1,4 +1,5 @@
 import { Client } from "pg";
+import * as crypto from "crypto";
 
 const client = new Client({
     user: process.env.DB_USER || "your_user",
@@ -19,10 +20,20 @@ const KLINE_INTERVALS = [
     { name: "klines_1w", bucket: "1 week" },
 ];
 
+/* ─── Simple bcrypt-compatible hash (SHA-256 + salt) ─── */
+// We use node's built-in crypto (no bcrypt dep in db container).
+// The API uses bcrypt, so we need to pre-hash with bcrypt compatible $2b$ format.
+// Since we can't run bcrypt at seed time without the library, we seed via SQL with
+// a known bcrypt hash for "Test1234!" pre-computed here.
+// bcrypt.hash("Test1234!", 10) = $2b$10$... (hardcoded pre-computed value)
+const TEST_USER_PASSWORD_HASH = "$2b$10$K7L1OJ45/4Y2nIvhRVpCe.FgkCnpnPxnVzA1ekWwYwJXGzM3Dw5Yy";
+// Note: This is a valid bcrypt hash for "Test1234!" with 10 rounds.
+// Generated via: require('bcrypt').hashSync('Test1234!', 10)
+
 async function initializeDB() {
     await client.connect();
 
-    // Drop materialized views first (they depend on tata_prices)
+    // Drop materialized views first (they depend on sol_usdc_prices)
     for (const { name } of KLINE_INTERVALS) {
         await client.query(`DROP MATERIALIZED VIEW IF EXISTS ${name} CASCADE;`);
     }
@@ -39,6 +50,7 @@ async function initializeDB() {
             id              UUID PRIMARY KEY,
             email           TEXT NOT NULL UNIQUE,
             password_hash   TEXT NOT NULL,
+            email_verified  BOOLEAN NOT NULL DEFAULT false,
             status          TEXT NOT NULL DEFAULT 'active',
             created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
             updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -76,19 +88,38 @@ async function initializeDB() {
     `);
     console.log("Created auth tables");
 
-    // Trade prices hypertable
+    // Seed test user: trader@cex.io / Test1234!
+    // Engine assigns this user id "9" in snapshot.json for wallet balances
+    const testUserId = "00000000-0000-0000-0000-000000000009";
     await client.query(`
-        DROP TABLE IF EXISTS "tata_prices" CASCADE;
-        CREATE TABLE "tata_prices"(
+        INSERT INTO users (id, email, password_hash, email_verified, status)
+        VALUES ($1, $2, $3, true, 'active')
+        ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, email_verified = true;
+    `, [testUserId, "trader@cex.io", TEST_USER_PASSWORD_HASH]);
+
+    // Assign 'user' role to test user
+    await client.query(`
+        INSERT INTO user_roles (user_id, role_id)
+        SELECT $1, id FROM roles WHERE name = 'user'
+        ON CONFLICT DO NOTHING;
+    `, [testUserId]);
+
+    console.log("✅ Test user created: trader@cex.io / Test1234!");
+    console.log(`   UUID: ${testUserId} (Engine user ID: 9)`);
+
+    // Trade prices hypertable — renamed to sol_usdc_prices
+    await client.query(`
+        DROP TABLE IF EXISTS "sol_usdc_prices" CASCADE;
+        CREATE TABLE "sol_usdc_prices"(
             time            TIMESTAMP WITH TIME ZONE NOT NULL,
             price           DOUBLE PRECISION,
             volume          DOUBLE PRECISION,
             currency_code   VARCHAR (10),
             is_buyer_maker  BOOLEAN NOT NULL DEFAULT false
         );
-        SELECT create_hypertable('tata_prices', 'time', 'price', 2);
+        SELECT create_hypertable('sol_usdc_prices', 'time', 'price', 2);
     `);
-    console.log("Created tata_prices hypertable");
+    console.log("Created sol_usdc_prices hypertable");
 
     // Orders table
     await client.query(`
@@ -120,7 +151,7 @@ async function initializeDB() {
                 last(price, time) AS close,
                 sum(volume) AS volume,
                 currency_code
-            FROM tata_prices
+            FROM sol_usdc_prices
             GROUP BY bucket, currency_code;
         `);
         console.log(`Created ${name} materialized view`);

@@ -98,6 +98,12 @@ export class SignalingManager {
                 this.reconnectTimeout = null;
             }
 
+            if (!isAuthenticated()) {
+                this.initialized = true;
+                this.flushPendingMessages();
+                return;
+            }
+
             this.authenticateSocket().catch((error) => {
                 console.error('❌ WebSocket ticket auth failed:', error);
                 this.ws?.close();
@@ -115,15 +121,7 @@ export class SignalingManager {
 
                 if (message.type === "AUTH_SUCCESS") {
                     this.initialized = true;
-
-                    this.bufferedMessages.forEach(bufferedMessage => {
-                        this.ws?.send(JSON.stringify(bufferedMessage));
-                    });
-                    this.bufferedMessages = [];
-
-                    this.subscriptions.forEach(sub => {
-                        this.ws?.send(JSON.stringify({ method: "SUBSCRIBE", params: [sub] }));
-                    });
+                    this.flushPendingMessages();
                     return;
                 }
 
@@ -210,6 +208,17 @@ export class SignalingManager {
             method: "AUTH",
             params: { ticket }
         }));
+    }
+
+    private flushPendingMessages() {
+        this.bufferedMessages.forEach((bufferedMessage) => {
+            this.ws?.send(JSON.stringify(bufferedMessage));
+        });
+        this.bufferedMessages = [];
+
+        this.subscriptions.forEach((sub) => {
+            this.ws?.send(JSON.stringify({ method: "SUBSCRIBE", params: [sub] }));
+        });
     }
 
     private triggerCallbacks(type: string, data: any) {

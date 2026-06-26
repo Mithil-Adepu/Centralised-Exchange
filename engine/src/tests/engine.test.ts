@@ -22,7 +22,7 @@ describe("Engine", () => {
             message: {
                 type: CREATE_ORDER,
                 data: {
-                    market: "TATA_INR",
+                    market: "SOL_USDC",
                     price: "1000",
                     quantity: "1",
                     side: "buy",
@@ -36,7 +36,7 @@ describe("Engine", () => {
             message: {
                 type: CREATE_ORDER,
                 data: {
-                    market: "TATA_INR",
+                    market: "SOL_USDC",
                     price: "1001",
                     quantity: "1",
                     side: "sell",
@@ -58,7 +58,7 @@ describe("Engine", () => {
             message: {
                 type: CREATE_ORDER,
                 data: {
-                    market: "TATA_INR",
+                    market: "SOL_USDC",
                     price: "1000",
                     quantity: "1",
                     side: "buy",
@@ -72,7 +72,7 @@ describe("Engine", () => {
             message: {
                 type: CREATE_ORDER,
                 data: {
-                    market: "TATA_INR",
+                    market: "SOL_USDC",
                     price: "1000",
                     quantity: "1",
                     side: "sell",

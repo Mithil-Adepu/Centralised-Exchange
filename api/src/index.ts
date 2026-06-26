@@ -10,6 +10,7 @@ import { onRampRouter } from "./routes/onramp";
 import { authRouter } from "./routes/auth";
 import { openApiRouter } from "./routes/openapi";
 import { walletRouter } from "./routes/wallet";
+import { razorpayRouter } from "./routes/razorpay";
 import { startSessionCleanup } from "./auth/sessionCleanup";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -87,6 +88,7 @@ app.use("/api/v1/tickers", tickersRouter);
 app.use("/api/v1/onramp", onRampRouter);
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/wallet", walletRouter);
+app.use("/api/v1/wallet/razorpay", razorpayRouter);
 app.use("/api/v1/openapi.json", openApiRouter);
 
 /* ─── Global Error Handler ─── */

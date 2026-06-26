@@ -16,7 +16,7 @@ const onRampLimiter = createRateLimiter({
     keyGenerator: (req) => req.auth?.userId || req.ip || "unknown",
 });
 
-onRampRouter.post("/", authenticate, requireRoles(["user", "admin"]), onRampLimiter, async (req, res) => {
+onRampRouter.post("/", authenticate, requireRoles(["admin"]), onRampLimiter, async (req, res) => {
     const userId = req.auth!.userId;
 
     try {

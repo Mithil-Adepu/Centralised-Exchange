@@ -12,7 +12,7 @@ const pool = new Pool({
     host: process.env.DB_HOST || "localhost",
     database: process.env.DB_NAME || "my_database",
     password: process.env.DB_PASSWORD || "your_password",
-    port: Number(process.env.DB_PORT) || 5432,
+    port: Number(process.env.DB_PORT) || 5433,
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,

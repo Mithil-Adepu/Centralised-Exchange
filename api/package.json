@@ -24,6 +24,7 @@
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^6.10.1",
     "pg": "^8.12.0",
+    "razorpay": "^2.9.4",
     "redis": "^4.6.14",
     "typescript": "^5.9.3"
   },

@@ -6,7 +6,7 @@ const client = new Client({
     host: process.env.DB_HOST || "localhost",
     database: process.env.DB_NAME || "my_database",
     password: process.env.DB_PASSWORD || "your_password",
-    port: Number(process.env.DB_PORT) || 5432,
+    port: Number(process.env.DB_PORT) || 5433,
 });
 
 /* ─── Kline intervals for materialized view generation ─── */
@@ -79,6 +79,20 @@ async function initializeDB() {
 
         CREATE INDEX idx_auth_sessions_user ON auth_sessions(user_id);
         CREATE INDEX idx_auth_sessions_expires ON auth_sessions(expires_at);
+        
+        DROP TABLE IF EXISTS fiat_deposits CASCADE;
+        CREATE TABLE fiat_deposits(
+            id              SERIAL PRIMARY KEY,
+            user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            order_id        TEXT NOT NULL UNIQUE,
+            payment_id      TEXT,
+            amount          DOUBLE PRECISION NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+        CREATE INDEX idx_fiat_deposits_user ON fiat_deposits(user_id);
+        CREATE INDEX idx_fiat_deposits_order ON fiat_deposits(order_id);
     `);
 
     await client.query(`

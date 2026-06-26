@@ -82,6 +82,7 @@ function buildSeedCandles(price: number, endTime: number, interval: string) {
 export function TradeView({ market }: { market: string }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartManagerRef = useRef<ChartManager | null>(null);
+  const currentCandleRef = useRef<any>(null);
   const [selectedInterval, setSelectedInterval] = useState("1h");
   const [activeView, setActiveView] = useState<ViewTab>("chart");
   const [loading, setLoading] = useState(true);
@@ -148,6 +149,9 @@ export function TradeView({ market }: { market: string }) {
           });
 
           chartManagerRef.current = chartManager;
+          if (chartData.length > 0) {
+            currentCandleRef.current = { ...chartData[chartData.length - 1] };
+          }
           setLoading(false);
 
           /* ─── Subscribe to real-time trade updates ─── */
@@ -159,14 +163,28 @@ export function TradeView({ market }: { market: string }) {
               if (chartManagerRef.current && tradeData.price) {
                 const price = parseFloat(tradeData.price);
                 const unix = toUnixSeconds(tradeData.timestamp);
-                const bucket = bucketTimestamp(unix, selectedInterval);
-                chartManagerRef.current.update({
-                  close: price,
-                  high: price,
-                  low: price,
-                  open: price,
-                  time: bucket * 1000,
-                });
+                const bucketTime = bucketTimestamp(unix, selectedInterval) * 1000;
+                
+                let candle = currentCandleRef.current;
+                
+                if (!candle || candle.time !== bucketTime) {
+                  // New candle
+                  candle = {
+                    time: bucketTime,
+                    open: price,
+                    high: price,
+                    low: price,
+                    close: price,
+                  };
+                } else {
+                  // Update existing candle
+                  candle.close = price;
+                  candle.high = Math.max(candle.high, price);
+                  candle.low = Math.min(candle.low, price);
+                }
+                
+                currentCandleRef.current = candle;
+                chartManagerRef.current.update(candle);
               }
             },
             `CHART-${market}`

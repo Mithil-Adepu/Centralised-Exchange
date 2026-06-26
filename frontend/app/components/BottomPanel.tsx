@@ -190,25 +190,26 @@ function OpenOrdersTab({ market }: { market: string }) {
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
-  const fetchOrders = (signal?: AbortSignal) => {
-    getOpenOrders(market)
-      .then((response) => {
-        if (signal?.aborted) return;
-        setOrders(response || []);
-        setMessage("No open orders");
-      })
-      .catch((e) => {
-        if (signal?.aborted) return;
-        setOrders([]);
-        setMessage(e?.message || "Sign in to view open orders");
-      })
-      .finally(() => {
-        if (!signal?.aborted) setLoading(false);
-      });
-  };
-
   useEffect(() => {
     const controller = new AbortController();
+    
+    const fetchOrders = (signal?: AbortSignal) => {
+      getOpenOrders(market)
+        .then((response) => {
+          if (signal?.aborted) return;
+          setOrders(response || []);
+          setMessage("No open orders");
+        })
+        .catch((e) => {
+          if (signal?.aborted) return;
+          setOrders([]);
+          setMessage(e?.message || "Sign in to view open orders");
+        })
+        .finally(() => {
+          if (!signal?.aborted) setLoading(false);
+        });
+    };
+
     setLoading(true);
     fetchOrders(controller.signal);
 

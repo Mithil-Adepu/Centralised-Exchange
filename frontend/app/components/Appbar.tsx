@@ -31,6 +31,9 @@ export const Appbar = () => {
           >
             Spot
           </NavTab>
+          <NavTab href="/wallet" active={pathname === "/wallet"}>
+            Wallet
+          </NavTab>
           <NavTab href="#" active={false} disabled>
             Futures
           </NavTab>

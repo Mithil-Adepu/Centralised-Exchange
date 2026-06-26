@@ -23,7 +23,7 @@ services:
     container_name: cex-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -100,10 +100,10 @@ services:
       # ── Email / SMTP (optional — OTPs log to console if not set) ──
       # Gmail: set SMTP_HOST=smtp.gmail.com, SMTP_PORT=587
       #        SMTP_USER=you@gmail.com, SMTP_PASS=your-app-password
-      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_USER: ${SMTP_USER:-mithiladepu@gmail.com}
+      SMTP_PASS: ${SMTP_PASS:-ivpk sjpo umrw keol}
       SMTP_FROM: ${SMTP_FROM:-noreply@cex.io}
       SMTP_SECURE: ${SMTP_SECURE:-false}
 

@@ -5,7 +5,7 @@ const client = new Client({
     host: process.env.DB_HOST || 'localhost',
     database: process.env.DB_NAME || 'my_database',
     password: process.env.DB_PASSWORD || 'your_password',
-    port: Number(process.env.DB_PORT) || 5432,
+    port: Number(process.env.DB_PORT) || 5433,
 });
 client.connect().then(() => {
     console.log("DB: Connected to PostgreSQL for view refresh");

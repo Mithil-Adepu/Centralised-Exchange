@@ -308,6 +308,34 @@ export async function onRamp(amount: number): Promise<{ success: boolean; messag
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   Wallet & Razorpay Endpoints
+   ═══════════════════════════════════════════════════════════════ */
+
+export async function createRazorpayOrder(amount: number): Promise<{ success: boolean; orderId: string; amount: number }> {
+  return authRequest<{ success: boolean; orderId: string; amount: number }>({
+    method: "POST",
+    url: `${BASE_URL}/wallet/razorpay/create-order`,
+    data: { amount },
+  });
+}
+
+export async function verifyRazorpayPayment(
+  razorpay_order_id: string,
+  razorpay_payment_id: string,
+  razorpay_signature: string
+): Promise<{ success: boolean; message: string }> {
+  return authRequest<{ success: boolean; message: string }>({
+    method: "POST",
+    url: `${BASE_URL}/wallet/razorpay/verify`,
+    data: {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    },
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════
    OTP / Email Verification Endpoints
    ═══════════════════════════════════════════════════════════════ */
 

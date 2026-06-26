@@ -32,8 +32,9 @@ This exchange platform consists of multiple microservices:
 - **WebSocket API**: Low-latency real-time data streaming
 - **Responsive UI**: Modern trading interface
 - **Order Management**: Limit orders, market orders, and order history
-- **Chart Integration**: Advanced trading charts with technical indicators
+- **Chart Integration**: Advanced trading charts with real-time candlestick aggregation
 - **Multi-market Support**: Support for multiple trading pairs
+- **Wallet & Fiat Onramp**: Integrated Razorpay checkout for secure fiat deposits with Postgres transaction tracking
 - **Hybrid Authentication**: JWT access token + Postgres-backed refresh sessions
 - **WebSocket Ticket Auth**: One-time 60s ticket required as first WS message
 - **Role-Based Access Control**: user/admin roles enforced on protected routes
@@ -138,7 +139,7 @@ REDIS_URL=redis://localhost:6379
 DB_USER=your_user
 DB_PASSWORD=your_password
 DB_HOST=localhost
-DB_PORT=5432
+DB_PORT=5433
 DB_NAME=my_database
 ACCESS_TOKEN_SECRET=change-this-access-secret
 REFRESH_TOKEN_SECRET=change-this-refresh-secret

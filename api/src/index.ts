@@ -12,6 +12,7 @@ import { openApiRouter } from "./routes/openapi";
 import { walletRouter } from "./routes/wallet";
 import { razorpayRouter } from "./routes/razorpay";
 import { startSessionCleanup } from "./auth/sessionCleanup";
+import { isInternalTokenConfigured } from "./middleware/authenticate";
 
 /* ═══════════════════════════════════════════════════════════════
    API Server — Entry Point
@@ -25,7 +26,19 @@ import { startSessionCleanup } from "./auth/sessionCleanup";
 
 const app = express();
 const PORT = Number(process.env.API_PORT) || 3000;
-app.set("trust proxy", true);
+
+// ── Fail fast on an insecure internal-service token in production ──
+// A weak/placeholder token lets anyone impersonate any user, so refuse to boot.
+if (process.env.NODE_ENV === "production" && !isInternalTokenConfigured(process.env.INTERNAL_SERVICE_TOKEN)) {
+    console.error("FATAL: INTERNAL_SERVICE_TOKEN is missing, too short (<32 chars), or a known placeholder. Set a strong secret before running in production.");
+    process.exit(1);
+}
+
+// trust proxy: number of proxy hops in front of the API (0 = direct, no proxy).
+// Trusting all proxies ("true") lets clients spoof X-Forwarded-For and bypass
+// IP rate limits, so default to 0 and let deployments behind a proxy opt in.
+const trustProxyEnv = process.env.TRUST_PROXY;
+app.set("trust proxy", trustProxyEnv === undefined ? 0 : (/^\d+$/.test(trustProxyEnv) ? Number(trustProxyEnv) : trustProxyEnv === "true"));
 
 /* ─── Middleware ─── */
 const corsOrigin = process.env.CORS_ORIGIN

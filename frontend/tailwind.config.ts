@@ -18,60 +18,65 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        /* Tokens reference CSS variables (defined in globals.css) so a single
+           [data-theme] switch re-themes EVERY bp-* styled element. Hardcoding
+           hex here (the previous approach) meant theme toggling only affected
+           raw var() elements like <body>, leaving components stuck in dark. */
+
         /* ─── Backgrounds ─── */
         "bp-bg": {
-          primary:   "#0B0E11",
-          secondary: "#0E1217",
-          tertiary:  "#14181E",
-          card:      "#111519",
-          hover:     "#1A1E25",
-          active:    "#20252D",
-          input:     "#14181E",
+          primary:   "var(--bg-primary)",
+          secondary: "var(--bg-secondary)",
+          tertiary:  "var(--bg-tertiary)",
+          card:      "var(--bg-card)",
+          hover:     "var(--bg-hover)",
+          active:    "var(--bg-active)",
+          input:     "var(--bg-input)",
         },
 
         /* ─── Borders ─── */
         "bp-border": {
-          DEFAULT:   "#1E2329",
-          light:     "#2B3139",
-          active:    "#474D57",
+          DEFAULT:   "var(--border)",
+          light:     "var(--border-light)",
+          active:    "var(--border-active)",
         },
 
         /* ─── Text ─── */
         "bp-text": {
-          primary:   "#EAECEF",
-          secondary: "#848E9C",
-          tertiary:  "#5E6673",
-          disabled:  "#474D57",
-          inverse:   "#0B0E11",
+          primary:   "var(--text-primary)",
+          secondary: "var(--text-secondary)",
+          tertiary:  "var(--text-tertiary)",
+          disabled:  "var(--text-disabled)",
+          inverse:   "var(--text-inverse)",
         },
 
         /* ─── Green (Buy) ─── */
         "bp-green": {
-          DEFAULT:   "#0ECB81",
-          hover:     "#11E890",
-          bg:        "rgba(14, 203, 129, 0.10)",
-          "bg-strong": "rgba(14, 203, 129, 0.20)",
+          DEFAULT:   "var(--green)",
+          hover:     "var(--green-hover)",
+          bg:        "var(--green-bg)",
+          "bg-strong": "var(--green-bg-strong)",
         },
 
         /* ─── Red (Sell) ─── */
         "bp-red": {
-          DEFAULT:   "#F6465D",
-          hover:     "#FF5F74",
-          bg:        "rgba(246, 70, 93, 0.10)",
-          "bg-strong": "rgba(246, 70, 93, 0.20)",
+          DEFAULT:   "var(--red)",
+          hover:     "var(--red-hover)",
+          bg:        "var(--red-bg)",
+          "bg-strong": "var(--red-bg-strong)",
         },
 
         /* ─── Blue (Accent) ─── */
         "bp-blue": {
-          DEFAULT:   "#2962FF",
-          hover:     "#3F73FF",
-          bg:        "rgba(41, 98, 255, 0.10)",
+          DEFAULT:   "var(--blue)",
+          hover:     "var(--blue-hover)",
+          bg:        "var(--blue-bg)",
         },
 
         /* ─── Other Accents ─── */
-        "bp-purple":  "#7B61FF",
-        "bp-yellow":  "#FCD535",
-        "bp-orange":  "#F0B90B",
+        "bp-purple":  "var(--purple)",
+        "bp-yellow":  "var(--yellow)",
+        "bp-orange":  "var(--orange)",
       },
 
       /* ─── Typography ─── */

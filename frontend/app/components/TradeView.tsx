@@ -155,7 +155,18 @@ export function TradeView({ market }: { market: string }) {
 
           chartManagerRef.current = chartManager;
           if (chartData.length > 0) {
-            currentCandleRef.current = { ...chartData[chartData.length - 1] };
+            const seed = chartData[chartData.length - 1]!;
+            // Seed the live candle with the SAME shape/unit the live path uses:
+            // a `.time` field in seconds. Previously this spread `{ timestamp }`
+            // (no `.time`), so the first live tick always mismatched and spawned
+            // a spurious duplicate candle.
+            currentCandleRef.current = {
+              time: seed.timestamp,
+              open: seed.open,
+              high: seed.high,
+              low: seed.low,
+              close: seed.close,
+            };
           }
           setLoading(false);
 
@@ -168,7 +179,8 @@ export function TradeView({ market }: { market: string }) {
               if (chartManagerRef.current && tradeData.price) {
                 const price = parseFloat(tradeData.price);
                 const unix = toUnixSeconds(tradeData.timestamp);
-                const bucketTime = bucketTimestamp(unix, selectedInterval) * 1000;
+                // Seconds — same unit as the chart series and the seed candle.
+                const bucketTime = bucketTimestamp(unix, selectedInterval);
                 
                 let candle = currentCandleRef.current;
                 

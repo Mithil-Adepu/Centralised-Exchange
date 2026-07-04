@@ -139,6 +139,72 @@ export async function createSession(session: {
     );
 }
 
+/**
+ * Atomically create a session AND prune to the newest `maxSessions` for the user,
+ * all inside one transaction. Prevents the TOCTOU race where concurrent logins
+ * each insert-then-count and blow past the concurrent-session limit.
+ * @returns number of old sessions evicted.
+ */
+export async function createSessionWithLimit(session: {
+    sessionId: string;
+    userId: string;
+    refreshTokenHash: string;
+    expiresAt: Date;
+    ipAddress?: string;
+    userAgent?: string;
+}, maxSessions: number): Promise<number> {
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        await client.query(
+            `INSERT INTO auth_sessions (session_id, user_id, refresh_token_hash, ip_address, user_agent, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+                session.sessionId,
+                session.userId,
+                session.refreshTokenHash,
+                session.ipAddress || null,
+                session.userAgent || null,
+                session.expiresAt,
+            ]
+        );
+        const pruned = await client.query(
+            `DELETE FROM auth_sessions
+             WHERE user_id = $1 AND expires_at > NOW()
+               AND session_id NOT IN (
+                   SELECT session_id FROM auth_sessions
+                   WHERE user_id = $1 AND expires_at > NOW()
+                   ORDER BY created_at DESC
+                   LIMIT $2
+               )`,
+            [session.userId, maxSessions]
+        );
+        await client.query("COMMIT");
+        return pruned.rowCount || 0;
+    } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * Atomically consume (delete) a session only if the refresh-token hash matches.
+ * This is the compare-and-swap that makes refresh-token rotation safe: only one
+ * concurrent refresh can win the DELETE, so a token can't be spent twice.
+ * @returns the session's userId if consumed, or null if no matching row existed.
+ */
+export async function consumeSession(sessionId: string, refreshTokenHash: string): Promise<string | null> {
+    const result = await pool.query(
+        `DELETE FROM auth_sessions
+         WHERE session_id = $1 AND refresh_token_hash = $2 AND expires_at > NOW()
+         RETURNING user_id`,
+        [sessionId, refreshTokenHash]
+    );
+    return result.rows[0]?.user_id ?? null;
+}
+
 export async function getSessionById(sessionId: string): Promise<DbSession | null> {
     const result = await pool.query(
         "SELECT session_id, user_id, refresh_token_hash, ip_address, user_agent, created_at, expires_at FROM auth_sessions WHERE session_id = $1 AND expires_at > NOW()",

@@ -57,19 +57,23 @@ export class RedisManager {
         // so if it crashes mid-write the message is automatically re-delivered.
         // MAXLEN ~10000: approximate trim keeps ~10min of messages at peak load;
         // prevents stream from growing forever and exhausting Redis RAM.
+        // Errors are logged (not swallowed) so DB-write loss is visible, and the
+        // rejection is handled so it can never crash the engine process.
         this.client.xAdd(
             "db_processor",
             "*",
             { data: JSON.stringify(message) },
             { TRIM: { strategy: "MAXLEN", strategyModifier: "~", threshold: 10000 } }
-        );
+        ).catch((err) => console.error("RedisManager.pushMessage (db_processor) failed:", err));
     }
 
     public publishMessage(channel: string, message: WsMessage) {
-        this.client.publish(channel, JSON.stringify(message));
+        this.client.publish(channel, JSON.stringify(message))
+            .catch((err) => console.error(`RedisManager.publishMessage (${channel}) failed:`, err));
     }
 
     public sendToApi(clientId: string, message: MessageToApi) {
-        this.client.publish(clientId, JSON.stringify(message));
+        this.client.publish(clientId, JSON.stringify(message))
+            .catch((err) => console.error(`RedisManager.sendToApi (${clientId}) failed:`, err));
     }
 }

@@ -16,13 +16,18 @@ const INITIAL_BALANCE = 50000000; // 50M per trader
 
 // Market dynamics parameters — SOL/USDC realistic
 const BASE_PRICE = 150;
-const PRICE_VOLATILITY = 8;       // ±8 USDC range
+const PRICE_VOLATILITY = 10;      // ±10 USDC band around base (believable intraday range)
 const MIN_SPREAD = 0.05;          // Minimum 5 cents spread
 const MAX_SPREAD = 0.5;           // Max 50 cents spread
 
+// Order book shape — spacing is a % of price so the book spans a realistic
+// range (~±2%) instead of a razor-thin fixed band that looked unrealistic.
+const LEVEL_STEP_PCT = 0.0009;    // ~0.09% between levels  (~$0.135 @ $150)
+const INNER_OFFSET_PCT = 0.0004;  // best bid/ask just off mid (~$0.06 @ $150)
+
 // High-frequency simulation settings
 const CYCLE_INTERVAL = 500;       // 500ms cycles — near HFT
-const LIQUIDITY_ORDERS = 12;      // Deep book: 12 levels per side
+const LIQUIDITY_ORDERS = 20;      // Deep book: 20 levels per side
 
 // Trading probabilities — cranked up for candle generation
 const MOMENTUM_TRADE_PROB = 0.60;
@@ -103,10 +108,12 @@ function updateMarketStats() {
 }
 
 async function main() {
-    if (cycleCount === 0) {
-        await ensureAllBalances();
-    }
+    await ensureAllBalances();
 
+    // Proper loop instead of self-recursion. The old code called main() fire-and-forget
+    // at the end of each cycle, so `await main()` in startWithRetry resolved after ONE
+    // cycle (disabling the retry/backoff) and errors were caught by the wrong frame.
+    while (!isShuttingDown) {
     try {
         const cycleStartedAt = Date.now();
         cycleCount++;
@@ -163,10 +170,6 @@ async function main() {
         const jitter = 0.65 + Math.random() * 0.95;
         const delayMs = Math.max(200, Math.floor((CYCLE_INTERVAL / volatility) * jitter));
         await new Promise(resolve => setTimeout(resolve, delayMs));
-
-        if (!isShuttingDown) {
-            main();
-        }
     } catch (error) {
         errorCount++;
         console.error(`❌ Error (${errorCount}/${MAX_ERRORS}):`, getErrorMessage(error));
@@ -177,10 +180,7 @@ async function main() {
         }
 
         await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        if (!isShuttingDown) {
-            main();
-        }
+    }
     }
 }
 
@@ -195,10 +195,16 @@ async function maintainLiquidity(bestBid: number, bestAsk: number) {
         const mmBids = mmOrders.filter(o => o.side === "buy").length;
         const mmAsks = mmOrders.filter(o => o.side === "sell").length;
         
+        // Price-relative geometry so depth scales with price.
+        const innerOffset = currentPrice * INNER_OFFSET_PCT;
+        const levelStep = currentPrice * LEVEL_STEP_PCT;
+        // Cancel orders that have drifted beyond the intended book depth (+ buffer).
+        const maxDistance = levelStep * LIQUIDITY_ORDERS + innerOffset;
+
         // Cancel stale orders far from price
         for (const order of mmOrders) {
-            if ((order.side === "buy" && order.price < bestBid - 3) ||
-                (order.side === "sell" && order.price > bestAsk + 3)) {
+            if ((order.side === "buy" && order.price < bestBid - maxDistance) ||
+                (order.side === "sell" && order.price > bestAsk + maxDistance)) {
                 try {
                     await axios.delete(`${BASE_URL}/api/v1/order`, {
                         data: { orderId: order.orderId, market: MARKET },
@@ -207,21 +213,22 @@ async function maintainLiquidity(bestBid: number, bestAsk: number) {
                 } catch (e) {}
             }
         }
-        
-        // Add liquidity levels
-        const bidsNeeded = Math.min(LIQUIDITY_ORDERS - mmBids, 5);
-        const asksNeeded = Math.min(LIQUIDITY_ORDERS - mmAsks, 5);
-        
+
+        // Add liquidity levels (refill faster to keep the book deep)
+        const bidsNeeded = Math.min(LIQUIDITY_ORDERS - mmBids, 8);
+        const asksNeeded = Math.min(LIQUIDITY_ORDERS - mmAsks, 8);
+
+        // Size grows with depth (realistic books hold more size away from mid).
+        const levelQty = (i: number) => (10 + i * 4 + Math.random() * 25).toFixed(2);
+
         for (let i = 0; i < bidsNeeded; i++) {
-            const price = (currentPrice - 0.10 - (i + 1) * 0.08 - Math.random() * 0.05).toFixed(2);
-            const qty = (1 + Math.random() * 15).toFixed(2);
-            await placeOrder(TRADERS.MARKET_MAKER, "buy", price, qty, "📗");
+            const price = (currentPrice - innerOffset - (i + 1) * levelStep - Math.random() * levelStep * 0.3).toFixed(2);
+            await placeOrder(TRADERS.MARKET_MAKER, "buy", price, levelQty(i), "📗");
         }
-        
+
         for (let i = 0; i < asksNeeded; i++) {
-            const price = (currentPrice + 0.10 + (i + 1) * 0.08 + Math.random() * 0.05).toFixed(2);
-            const qty = (1 + Math.random() * 15).toFixed(2);
-            await placeOrder(TRADERS.MARKET_MAKER, "sell", price, qty, "📕");
+            const price = (currentPrice + innerOffset + (i + 1) * levelStep + Math.random() * levelStep * 0.3).toFixed(2);
+            await placeOrder(TRADERS.MARKET_MAKER, "sell", price, levelQty(i), "📕");
         }
     } catch (error) {
         console.error('  ⚠️  MM error:', getErrorMessage(error));
@@ -231,11 +238,11 @@ async function maintainLiquidity(bestBid: number, bestAsk: number) {
 async function momentumTrade(bestBid: number, bestAsk: number) {
     try {
         if (trend === 'bullish') {
-            const qty = (0.5 + Math.random() * 5).toFixed(2);
+            const qty = (3 + Math.random() * 20).toFixed(2);
             const price = (bestBid - 0.05).toFixed(2);
             await placeOrder(TRADERS.MOMENTUM_TRADER, "buy", price, qty, "🚀 MOM BUY");
         } else if (trend === 'bearish') {
-            const qty = (0.5 + Math.random() * 5).toFixed(2);
+            const qty = (3 + Math.random() * 20).toFixed(2);
             const price = (bestAsk + 0.05).toFixed(2);
             await placeOrder(TRADERS.MOMENTUM_TRADER, "sell", price, qty, "📉 MOM SELL");
         }
@@ -246,11 +253,11 @@ async function meanReversionTrade() {
     try {
         const deviation = currentPrice - priceMovingAverage;
         if (deviation > 0.5) {
-            const qty = (1 + Math.random() * 8).toFixed(2);
+            const qty = (5 + Math.random() * 25).toFixed(2);
             const price = (currentPrice - 0.03).toFixed(2);
             await placeOrder(TRADERS.MEAN_REVERTER, "sell", price, qty, "🔄 REV SELL");
         } else if (deviation < -0.5) {
-            const qty = (1 + Math.random() * 8).toFixed(2);
+            const qty = (5 + Math.random() * 25).toFixed(2);
             const price = (currentPrice + 0.03).toFixed(2);
             await placeOrder(TRADERS.MEAN_REVERTER, "buy", price, qty, "🔄 REV BUY");
         }
@@ -262,7 +269,7 @@ async function scalpTrade(bestBid: number, bestAsk: number) {
         const spread = bestAsk - bestBid;
         if (spread > MIN_SPREAD * 2) {
             const isBuy = Math.random() > 0.5;
-            const qty = (0.2 + Math.random() * 2).toFixed(2);
+            const qty = (1 + Math.random() * 8).toFixed(2);
             if (isBuy) {
                 const price = (bestBid - 0.02).toFixed(2);
                 await placeOrder(TRADERS.SCALPER, "buy", price, qty, "⚡ SCALP");
@@ -278,7 +285,7 @@ async function aggressiveTrade(bestBid: number, bestAsk: number) {
     try {
         if (Math.random() < AGGRESSIVE_TRADE_PROB) {
             const isBuy = Math.random() > 0.5;
-            const qty = (0.5 + Math.random() * 4).toFixed(2);
+            const qty = (3 + Math.random() * 15).toFixed(2);
             if (isBuy) {
                 const price = (bestAsk + (1 + Math.random() * 3)).toFixed(2);
                 await placeOrder(TRADERS.MOMENTUM_TRADER, "buy", price, qty, "🔥 AGG BUY");
@@ -295,7 +302,7 @@ async function burstTrade(bestBid: number, bestAsk: number) {
         const steps = 2 + Math.floor(Math.random() * 4);
         for (let i = 0; i < steps; i++) {
             const isBuy = Math.random() > 0.5;
-            const qty = (0.5 + Math.random() * 6).toFixed(2);
+            const qty = (3 + Math.random() * 20).toFixed(2);
             if (isBuy) {
                 const price = (bestAsk + (0.5 + Math.random() * 2)).toFixed(2);
                 await placeOrder(TRADERS.SCALPER, "buy", price, qty, "💥 BURST");
@@ -347,6 +354,13 @@ console.log('╚═════════════════════�
 console.log(`📍 Market: ${MARKET} | Base: $${BASE_PRICE} | ±$${PRICE_VOLATILITY}`);
 console.log(`⏱️  Cycle: ${CYCLE_INTERVAL}ms | Liquidity: ${LIQUIDITY_ORDERS} levels/side`);
 console.log('═'.repeat(55) + '\n');
+
+// Fail fast: without a valid internal token every order the MM sends is rejected
+// with 401 and silently swallowed — the MM appears to run but places nothing.
+if (!INTERNAL_SERVICE_TOKEN || INTERNAL_SERVICE_TOKEN.length < 32) {
+    console.error("FATAL: INTERNAL_SERVICE_TOKEN is missing or too short (<32 chars). The market maker cannot authenticate to the API. Set it before starting.");
+    process.exit(1);
+}
 
 // Start with exponential backoff retry so MM waits for API startup
 async function startWithRetry() {

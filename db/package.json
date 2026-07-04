@@ -7,8 +7,7 @@
     "build": "tsc",
     "start": "node --env-file=../.env dist/index.js",
     "dev": "npm run build && npm run start",
-    "seed:db": "npm run build && node --env-file=../.env dist/seed-db.js",
-    "refresh:views": "npm run build && node --env-file=../.env dist/cron.js"
+    "seed:db": "npm run build && node --env-file=../.env dist/seed-db.js"
   },
   "keywords": [],
   "author": "",

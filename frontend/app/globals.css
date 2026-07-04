@@ -15,77 +15,82 @@
 
 /* ─── CSS Custom Properties (Backpack Palette) ─── */
 :root {
-  /* Backgrounds */
-  --bg-primary:    #0B0E11;
-  --bg-secondary:  #0E1217;
-  --bg-tertiary:   #14181E;
-  --bg-card:       #111519;
-  --bg-hover:      #1A1E25;
-  --bg-active:     #20252D;
-  --bg-input:      #14181E;
+  /* ── Backpack dark palette ──
+     Deep, NEUTRAL near-black (no blue-gray tint = not "washed out"),
+     crisp low-contrast borders, and vivid buy/sell accents. */
 
-  /* Borders */
-  --border:        #1E2329;
-  --border-light:  #2B3139;
-  --border-active: #474D57;
+  /* Backgrounds — elevation layers */
+  --bg-primary:    #09090B;   /* app / header background (near-black) */
+  --bg-secondary:  #0F0F13;   /* panels */
+  --bg-tertiary:   #16161B;   /* segmented controls, chips */
+  --bg-card:       #121216;   /* cards */
+  --bg-hover:      #1C1C22;   /* row / control hover */
+  --bg-active:     #24242B;   /* pressed / selected */
+  --bg-input:      #0C0C0F;   /* inputs (deep, inset feel) */
 
-  /* Accent Colors */
-  --green:         #0ECB81;
-  --green-hover:   #11E890;
-  --green-bg:      rgba(14, 203, 129, 0.10);
-  --green-bg-strong: rgba(14, 203, 129, 0.20);
+  /* Borders — subtle but defined */
+  --border:        #212127;
+  --border-light:  #2C2C34;
+  --border-active: #45454F;
 
-  --red:           #F6465D;
-  --red-hover:     #FF5F74;
-  --red-bg:        rgba(246, 70, 93, 0.10);
-  --red-bg-strong: rgba(246, 70, 93, 0.20);
+  /* Accent — Buy (green) */
+  --green:         #3FD08B;
+  --green-hover:   #53DE9C;
+  --green-bg:      rgba(63, 208, 139, 0.12);
+  --green-bg-strong: rgba(63, 208, 139, 0.22);
 
-  --blue:          #2962FF;
-  --blue-hover:    #3F73FF;
-  --blue-bg:       rgba(41, 98, 255, 0.10);
+  /* Accent — Sell (red) */
+  --red:           #EA4B57;
+  --red-hover:     #F26069;
+  --red-bg:        rgba(234, 75, 87, 0.12);
+  --red-bg-strong: rgba(234, 75, 87, 0.22);
+
+  --blue:          #4A72FF;
+  --blue-hover:    #6285FF;
+  --blue-bg:       rgba(74, 114, 255, 0.12);
 
   --purple:        #7B61FF;
   --yellow:        #FCD535;
   --orange:        #F0B90B;
 
   /* Text */
-  --text-primary:   #EAECEF;
-  --text-secondary: #848E9C;
-  --text-tertiary:  #5E6673;
-  --text-disabled:  #474D57;
-  --text-inverse:   #0B0E11;
+  --text-primary:   #ECECEE;
+  --text-secondary: #8A8A94;
+  --text-tertiary:  #5C5C66;
+  --text-disabled:  #3F3F47;
+  --text-inverse:   #09090B;
 }
 
 /* ─── Light Theme ─── */
 [data-theme="light"] {
   --bg-primary:    #FFFFFF;
-  --bg-secondary:  #F5F5F5;
-  --bg-tertiary:   #EBEBEB;
-  --bg-card:       #FAFAFA;
-  --bg-hover:      #E8E8E8;
-  --bg-active:     #DCDCDC;
-  --bg-input:      #F0F0F0;
-  --border:        #E0E0E0;
-  --border-light:  #CCCCCC;
-  --border-active: #AAAAAA;
-  --green:         #0BB572;
-  --green-hover:   #0ECB81;
-  --green-bg:      rgba(14, 203, 129, 0.08);
-  --green-bg-strong: rgba(14, 203, 129, 0.16);
-  --red:           #E8384F;
-  --red-hover:     #F6465D;
-  --red-bg:        rgba(232, 56, 79, 0.08);
-  --red-bg-strong: rgba(232, 56, 79, 0.16);
-  --blue:          #2962FF;
-  --blue-hover:    #3F73FF;
-  --blue-bg:       rgba(41, 98, 255, 0.08);
-  --purple:        #7B61FF;
-  --yellow:        #F0B90B;
-  --orange:        #F0B90B;
-  --text-primary:   #1A1A1A;
-  --text-secondary: #5E6673;
-  --text-tertiary:  #848E9C;
-  --text-disabled:  #AAAAAA;
+  --bg-secondary:  #F7F8FA;
+  --bg-tertiary:   #EEF0F3;
+  --bg-card:       #FFFFFF;
+  --bg-hover:      #EDEFF2;
+  --bg-active:     #E2E5EA;
+  --bg-input:      #F3F4F6;
+  --border:        #E4E6EB;
+  --border-light:  #D4D7DE;
+  --border-active: #AEB2BC;
+  --green:         #17B77D;
+  --green-hover:   #12A06C;
+  --green-bg:      rgba(23, 183, 125, 0.10);
+  --green-bg-strong: rgba(23, 183, 125, 0.18);
+  --red:           #E14653;
+  --red-hover:     #CC3B48;
+  --red-bg:        rgba(225, 70, 83, 0.10);
+  --red-bg-strong: rgba(225, 70, 83, 0.18);
+  --blue:          #3E6AF0;
+  --blue-hover:    #305BD8;
+  --blue-bg:       rgba(62, 106, 240, 0.10);
+  --purple:        #6B54E8;
+  --yellow:        #E0A800;
+  --orange:        #E08600;
+  --text-primary:   #14161A;
+  --text-secondary: #5B6270;
+  --text-tertiary:  #8A909C;
+  --text-disabled:  #B0B4BC;
   --text-inverse:   #FFFFFF;
 }
 

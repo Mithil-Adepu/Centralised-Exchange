@@ -102,6 +102,19 @@ orderRouter.delete("/", authenticate, requireRoles(["user", "admin"]), orderWrit
             data: { orderId: normalizedOrderId, market: normalizedMarket, userId }
         });
 
+        if (response.type === "CANCEL_ORDER_REJECTED") {
+            auditLog({
+                event: "order.cancel",
+                level: "warn",
+                requestId: req.requestId,
+                userId,
+                ip: req.ip,
+                success: false,
+                details: { orderId: normalizedOrderId, market: normalizedMarket, error: response.payload.error },
+            });
+            return res.status(400).json({ error: "Cancel rejected", message: response.payload.error });
+        }
+
         auditLog({
             event: "order.cancel",
             requestId: req.requestId,

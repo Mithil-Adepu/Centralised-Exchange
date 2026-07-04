@@ -246,8 +246,10 @@ export function SwapUI({ market }: { market: string }) {
         )}
 
         {/* ═══ 4. Size Input ═══ */}
+        {/* Size is always the BASE asset (SOL). Label reflects the action so a
+            sell clearly reads as "amount of SOL to sell", not a recolored buy. */}
         <InputField
-          label="Size"
+          label={isBuy ? "Size (Amount to buy)" : "Size (Amount to sell)"}
           value={quantity}
           onChange={setQuantity}
           suffix={base}
@@ -255,17 +257,35 @@ export function SwapUI({ market }: { market: string }) {
         />
 
         {/* ═══ 5. Percentage Slider ═══ */}
-        <PercentageSlider
-          value={sliderPercent}
-          onChange={handleSliderChange}
-          variant={isBuy ? "buy" : "sell"}
-        />
+        {/* Buy = % of quote balance to spend; Sell = % of base balance to sell */}
+        <div>
+          <PercentageSlider
+            value={sliderPercent}
+            onChange={handleSliderChange}
+            variant={isBuy ? "buy" : "sell"}
+          />
+          <p className="text-2xs text-bp-text-tertiary mt-1 text-right">
+            {isBuy
+              ? `Spending ${quoteBalance.toFixed(2)} ${quote} available`
+              : `Selling from ${baseBalance.toFixed(QUANTITY_PRECISION)} ${base} available`}
+          </p>
+        </div>
 
-        {/* ═══ 6. Order Value ═══ */}
+        {/* ═══ 6. Order Summary (context-aware for buy vs sell) ═══ */}
         <div className="space-y-1.5 pb-2">
-          {orderType === "limit" && <InfoRow label="Order Value" value={`${total} ${quote}`} />}
-          <InfoRow label={`${base} Balance`} value={`${baseBalance.toFixed(QUANTITY_PRECISION)} ${base}`} />
-          <InfoRow label={`${quote} Balance`} value={`${quoteBalance.toFixed(2)} ${quote}`} />
+          {isBuy ? (
+            <>
+              {orderType === "limit" && <InfoRow label="Est. cost" value={`${total} ${quote}`} highlight />}
+              <InfoRow label="You receive" value={`${quantity || "0"} ${base}`} />
+              <InfoRow label={`${quote} available`} value={`${quoteBalance.toFixed(2)} ${quote}`} />
+            </>
+          ) : (
+            <>
+              <InfoRow label="Selling" value={`${quantity || "0"} ${base}`} highlight />
+              {orderType === "limit" && <InfoRow label="Est. proceeds" value={`${total} ${quote}`} />}
+              <InfoRow label={`${base} available`} value={`${baseBalance.toFixed(QUANTITY_PRECISION)} ${base}`} />
+            </>
+          )}
         </div>
 
         {/* ═══ 8. Submit Button ═══ */}
@@ -411,12 +431,12 @@ function QuickFillButton({
   );
 }
 
-/** Info Row (label + value) */
-function InfoRow({ label, value }: { label: string; value: string }) {
+/** Info Row (label + value). `highlight` emphasizes the key line (cost/proceeds/size). */
+function InfoRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="flex items-center justify-between text-2xs">
       <span className="text-bp-text-tertiary">{label}</span>
-      <span className="text-bp-text-secondary tabular-nums">{value}</span>
+      <span className={cn("tabular-nums", highlight ? "text-bp-text-primary font-semibold" : "text-bp-text-secondary")}>{value}</span>
     </div>
   );
 }

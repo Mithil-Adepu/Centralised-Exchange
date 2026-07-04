@@ -24,6 +24,28 @@ const DB_STREAM   = "db_processor";
 const DB_GROUP    = "db_group";
 const DB_CONSUMER = "db-processor-1";
 
+/** Thrown for failures that will NEVER succeed on retry (bad data, not infra). */
+class PermanentError extends Error {}
+
+/** Parse + shape-validate a stream message. Bad JSON / unknown type = permanent. */
+function parseAndValidate(raw: string): DbMessage {
+    let data: any;
+    try {
+        data = JSON.parse(raw);
+    } catch (e) {
+        throw new PermanentError(`Malformed JSON: ${String(e)}`);
+    }
+    if (data?.type !== "TRADE_ADDED" && data?.type !== "ORDER_UPDATE") {
+        throw new PermanentError(`Unknown message type: ${data?.type}`);
+    }
+    return data as DbMessage;
+}
+
+/** Permanent = bad data (dead-letter + ack). Everything else = transient (retry). */
+function isPermanent(err: unknown): boolean {
+    return err instanceof PermanentError || err instanceof SyntaxError;
+}
+
 async function main() {
     await pgClient.connect();
     console.log("Connected to PostgreSQL");
@@ -98,13 +120,26 @@ async function main() {
         }
         for (const { id, message: fields } of pending[0].messages) {
             try {
-                const data: DbMessage = JSON.parse(fields.data);
+                const data: DbMessage = parseAndValidate(fields.data);
                 if (data.type === "TRADE_ADDED") await handleTradeAdded(data);
                 if (data.type === "ORDER_UPDATE") await handleOrderUpdate(data);
                 await redisClient.xAck(DB_STREAM, DB_GROUP, id); // Only ACK on success
             } catch (error) {
-                console.error(`[REPLAY] Error processing pending message ${id} — will retry on next restart:`, error);
-                // Do NOT xAck — message stays pending and will be retried
+                if (isPermanent(error)) {
+                    // Poison message would block startup forever — dead-letter + ACK.
+                    console.error(`[REPLAY] Poison message ${id} — dead-lettering:`, error);
+                    try {
+                        await redisClient.lPush("db_processor_dlq", JSON.stringify({
+                            id, fields, error: String(error), ts: Date.now(),
+                        }));
+                    } catch (dlqErr) {
+                        console.error("[REPLAY] Failed to push to DLQ:", dlqErr);
+                    }
+                    await redisClient.xAck(DB_STREAM, DB_GROUP, id);
+                } else {
+                    console.error(`[REPLAY] Transient error on ${id} — will retry on next restart:`, error);
+                    // Do NOT xAck — message stays pending and will be retried
+                }
             }
         }
     }
@@ -124,12 +159,12 @@ async function main() {
 
             for (const { id, message: fields } of response[0].messages) {
                 try {
-                    const data: DbMessage = JSON.parse(fields.data);
-                    
+                    const data: DbMessage = parseAndValidate(fields.data);
+
                     if (data.type === "TRADE_ADDED") {
                         await handleTradeAdded(data);
                     }
-                    
+
                     if (data.type === "ORDER_UPDATE") {
                         await handleOrderUpdate(data);
                     }
@@ -138,15 +173,25 @@ async function main() {
                     // If we crash before this line, the message is re-delivered on restart.
                     await redisClient.xAck(DB_STREAM, DB_GROUP, id);
                 } catch (error) {
-                    console.error(`Error processing message ${id}:`, error);
-                    // Do NOT XACK — message stays pending and will be retried on restart.
-                    try {
-                        const rawMsg = JSON.stringify({ error: String(error), ts: Date.now() });
-                        await redisClient.lPush("db_processor_dlq", rawMsg);
-                    } catch (dlqErr) {
-                        console.error("Failed to push to DLQ:", dlqErr);
+                    if (isPermanent(error)) {
+                        // Poison message (bad JSON, unknown type, missing fields):
+                        // retrying will never succeed. Dead-letter the FULL message and
+                        // XACK it so it stops looping the pending list forever.
+                        console.error(`Poison message ${id} — dead-lettering:`, error);
+                        try {
+                            await redisClient.lPush("db_processor_dlq", JSON.stringify({
+                                id, fields, error: String(error), ts: Date.now(),
+                            }));
+                        } catch (dlqErr) {
+                            console.error("Failed to push to DLQ:", dlqErr);
+                        }
+                        await redisClient.xAck(DB_STREAM, DB_GROUP, id);
+                    } else {
+                        // Transient failure (e.g. DB briefly unavailable): do NOT XACK
+                        // and do NOT DLQ — leave it pending so it retries on next read.
+                        console.error(`Transient error on message ${id} — will retry:`, error);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
                     }
-                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
         } catch (error) {
@@ -189,10 +234,10 @@ async function handleOrderUpdate(data: Extract<DbMessage, { type: "ORDER_UPDATE"
     const { orderId, executedQty, market, price, quantity, side, userId } = data.data;
     
     if (!userId) {
-        throw new Error(`ORDER_UPDATE message is missing userId — orderId: ${orderId}`);
+        throw new PermanentError(`ORDER_UPDATE message is missing userId — orderId: ${orderId}`);
     }
     if (!orderId) {
-        throw new Error(`ORDER_UPDATE message is missing orderId`);
+        throw new PermanentError(`ORDER_UPDATE message is missing orderId`);
     }
     
     // Check if order exists
@@ -200,10 +245,12 @@ async function handleOrderUpdate(data: Extract<DbMessage, { type: "ORDER_UPDATE"
     const existingOrder = await pgClient.query(checkQuery, [orderId]);
     
     if (existingOrder.rows.length > 0) {
-        // Update existing order
+        // Update existing order. Maker fills arrive one ORDER_UPDATE per trade,
+        // each carrying only THAT fill's qty — so accumulate rather than overwrite,
+        // otherwise a maker filled across N trades ends with only the last fill's qty.
         const updateQuery = `
-            UPDATE orders 
-            SET executed_qty = $1, updated_at = NOW()
+            UPDATE orders
+            SET executed_qty = executed_qty + $1, updated_at = NOW()
             WHERE order_id = $2
         `;
         try {
@@ -215,7 +262,7 @@ async function handleOrderUpdate(data: Extract<DbMessage, { type: "ORDER_UPDATE"
     } else {
         // Insert new order — all fields must be present
         if (!market || !price || !quantity || !side) {
-            throw new Error(`ORDER_UPDATE insert missing required fields — orderId: ${orderId}, market: ${market}, price: ${price}, quantity: ${quantity}, side: ${side}`);
+            throw new PermanentError(`ORDER_UPDATE insert missing required fields — orderId: ${orderId}, market: ${market}, price: ${price}, quantity: ${quantity}, side: ${side}`);
         }
         const insertQuery = `
             INSERT INTO orders (order_id, user_id, market, price, quantity, side, executed_qty, created_at, updated_at)

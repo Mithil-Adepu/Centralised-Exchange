@@ -16,10 +16,9 @@ type FallbackCounter = {
 const fallbackCounters = new Map<string, FallbackCounter>();
 
 function getClientIp(req: Request) {
-    const forwarded = req.headers["x-forwarded-for"];
-    if (typeof forwarded === "string" && forwarded.length > 0) {
-        return forwarded.split(",")[0]?.trim() || "unknown";
-    }
+    // Use req.ip, which Express derives from the socket + the configured
+    // `trust proxy` hop count. Reading X-Forwarded-For directly is unsafe:
+    // clients can spoof it to rotate identities and bypass IP rate limits.
     return req.ip || req.socket.remoteAddress || "unknown";
 }
 

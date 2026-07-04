@@ -89,6 +89,24 @@ export const Appbar = () => {
               <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-2xs border border-bp-border rounded text-bp-text-disabled font-mono">⌘K</kbd>
             </button>
 
+            {/* Deposit / Withdraw (authenticated) */}
+            {isAuthenticated && (
+              <>
+                <Link
+                  href="/deposit"
+                  className="px-3 py-1.5 text-xs font-semibold text-bp-green rounded hover:bg-bp-green-bg transition-colors"
+                >
+                  Deposit
+                </Link>
+                <Link
+                  href="/withdraw"
+                  className="px-3 py-1.5 text-xs font-semibold text-bp-blue rounded hover:bg-bp-blue-bg transition-colors"
+                >
+                  Withdraw
+                </Link>
+              </>
+            )}
+
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
@@ -313,6 +331,11 @@ function UserDropdown({ email, onLogout }: { email: string; onLogout: () => void
           <div className="px-3 py-2 border-b border-bp-border">
             <p className="text-xs text-bp-text-primary font-medium truncate">{email}</p>
           </div>
+          <DropdownLink href="/profile" onClick={() => setOpen(false)} label="Profile" icon="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          <DropdownLink href="/wallet" onClick={() => setOpen(false)} label="Wallet" icon="M3 10h18M7 15h1m4 0h1m-7 4h12a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          <DropdownLink href="/deposit" onClick={() => setOpen(false)} label="Deposit" icon="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
+          <DropdownLink href="/withdraw" onClick={() => setOpen(false)} label="Withdraw" icon="M12 20V8m0 0l-4 4m4-4l4 4M4 4h16" />
+          <div className="my-1 border-t border-bp-border" />
           <Link
             href="/settings/security"
             onClick={() => setOpen(false)}
@@ -338,6 +361,22 @@ function UserDropdown({ email, onLogout }: { email: string; onLogout: () => void
         </div>
       )}
     </div>
+  );
+}
+
+/** Dropdown menu link with a leading icon (used in the profile menu). */
+function DropdownLink({ href, onClick, label, icon }: { href: string; onClick: () => void; label: string; icon: string }) {
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-bp-text-secondary hover:text-bp-text-primary hover:bg-bp-bg-tertiary transition-colors"
+    >
+      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icon} />
+      </svg>
+      {label}
+    </Link>
   );
 }
 

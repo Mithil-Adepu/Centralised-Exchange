@@ -11,6 +11,10 @@ import { cn } from "../lib/utils";
 
 type Screen = "login" | "register" | "otp" | "forgot" | "reset";
 
+// Pre-seeded demo profiles (see db seed). All share the same password.
+const DEMO_PASSWORD = "Test1234!";
+const DEMO_ACCOUNTS = ["trader@cex.io", "alice@cex.io", "bob@cex.io", "carol@cex.io"];
+
 const EyeIcon = ({ open }: { open: boolean }) => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     {open ? (
@@ -336,6 +340,25 @@ export function AuthModal() {
               Don&apos;t have an account?{" "}
               <button type="button" onClick={() => goTo("register")} className="text-bp-text-primary hover:underline font-medium">Sign up</button>
             </p>
+
+            {/* ── Demo accounts — click to autofill ── */}
+            <div className="pt-3 border-t border-bp-border">
+              <p className="text-xs text-bp-text-tertiary mb-2">
+                Demo accounts <span className="text-bp-text-disabled">(password: {DEMO_PASSWORD})</span>
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {DEMO_ACCOUNTS.map((acc) => (
+                  <button
+                    key={acc}
+                    type="button"
+                    onClick={() => { setEmail(acc); setPassword(DEMO_PASSWORD); setError(""); }}
+                    className="px-2 py-1 text-2xs rounded-md border border-bp-border text-bp-text-secondary hover:border-bp-border-active hover:text-bp-text-primary transition-colors"
+                  >
+                    {acc}
+                  </button>
+                ))}
+              </div>
+            </div>
           </form>
         )}
 

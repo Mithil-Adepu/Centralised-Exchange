@@ -177,6 +177,9 @@ export type DepthUpdateMessage = {
     b?: [string, string][];
     a?: [string, string][];
     e: "depth";
+    // When true, `b`/`a` are the FULL book (replace local state), not a delta.
+    // Absent/false means an incremental update (merge; qty "0" removes a level).
+    snapshot?: boolean;
   };
 };
 

@@ -9,6 +9,12 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ .
+# NEXT_PUBLIC_* vars are inlined at build time — they MUST be present here,
+# not at runtime. docker-compose passes them as build args.
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_WS_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUILD_STANDALONE=true
 RUN npm run build

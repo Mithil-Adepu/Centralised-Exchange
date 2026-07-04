@@ -63,12 +63,12 @@ function BidRow({
     >
       {/* Depth Bar — grows from right */}
       <div
-        className="absolute top-0 right-0 h-full bg-bp-green/8 transition-[width] duration-100"
+        className="absolute top-0 right-0 h-full bg-bp-green-bg transition-[width] duration-100"
         style={{ width: `${fillPercent}%` }}
       />
 
       {/* Data Row */}
-      <div className="relative grid grid-cols-3 px-3 py-[3px] text-xs group-hover:bg-bp-bg-hover/50">
+      <div className="relative grid grid-cols-3 px-3 py-[3px] text-xs group-hover:bg-bp-bg-hover">
         <div className="text-bp-green tabular-nums">
           {formatPrice(price, 2)}
         </div>

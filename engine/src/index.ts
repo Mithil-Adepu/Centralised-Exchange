@@ -1,14 +1,15 @@
 import { createClient } from "redis";
 import { Engine } from "./trade/Engine";
+import { elog } from "./trade/logger";
 
 const STREAM_NAME = "engine_messages";
 const GROUP_NAME  = "engine_group";
 const CONSUMER    = "engine-1";
 
 async function main() {
-    const engine = new Engine(); 
+    elog.info("ENGINE", "Booting matching engine...");
+    const engine = new Engine();
     let isShuttingDown = false;
-    const logMessages = process.env.ENGINE_LOG_MESSAGES === "true";
 
     // Create Redis client with error handling
     const redisClient = createClient({
@@ -45,7 +46,7 @@ async function main() {
         
         console.log("\nShutting down gracefully...");
         try {
-            engine.saveSnapshot();
+            await engine.saveSnapshot();
             console.log("Snapshot saved on shutdown.");
         } catch (e) {
             console.error("Failed to save snapshot on shutdown:", e);
@@ -81,9 +82,7 @@ async function main() {
         for (const { id, message: fields } of pending[0].messages) {
             try {
                 const payload = JSON.parse(fields.data);
-                if (logMessages) {
-                    console.log(`[REPLAY] Processing pending message ${id} type: ${payload.type}`);
-                }
+                elog.info("REPLAY", `Reprocessing pending ${id} type=${payload.type}`);
                 engine.process({ message: payload, clientId: fields.clientId });
                 await redisClient.xAck(STREAM_NAME, GROUP_NAME, id);
                 engine.setLastProcessedStreamId(id);
@@ -127,9 +126,7 @@ async function main() {
             for (const { id, message: fields } of response[0].messages) {
                 try {
                     const payload = JSON.parse(fields.data);
-                    if (logMessages) {
-                        console.log(`Processing message ${id} type: ${payload.type}`);
-                    }
+                    elog.debug("STREAM", `recv ${id} type=${payload.type}`);
 
                     // Process the trade synchronously in RAM (single-threaded Node.js guarantee)
                     engine.process({ message: payload, clientId: fields.clientId });
@@ -139,6 +136,7 @@ async function main() {
                     // and will be re-processed on next startup (crash recovery above).
                     await redisClient.xAck(STREAM_NAME, GROUP_NAME, id);
                     engine.setLastProcessedStreamId(id);
+                    elog.debug("STREAM", `ack ${id}`);
                 } catch (error) {
                     console.error(`Error processing message ${id}:`, error);
                     // Do NOT XACK — message stays pending and will be retried on restart.

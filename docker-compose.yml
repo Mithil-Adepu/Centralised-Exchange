@@ -48,6 +48,29 @@ services:
       DB_NAME: ${DB_NAME:-my_database}
     restart: "no"
 
+  # ── DB Processor (long-running: drains db_processor stream → TimescaleDB) ──
+  db-processor:
+    build:
+      context: .
+      dockerfile: db/Dockerfile
+    container_name: cex-db-processor
+    restart: unless-stopped
+    command: ["node", "dist/index.js"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      db-seed:
+        condition: service_completed_successfully
+    environment:
+      DB_USER: ${DB_USER:-your_user}
+      DB_PASSWORD: ${DB_PASSWORD:-your_password}
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-my_database}
+      REDIS_URL: redis://redis:6379
+
   # ── Engine ──
   engine:
     build:
@@ -64,6 +87,9 @@ services:
       REDIS_URL: redis://redis:6379
       WITH_SNAPSHOT: ${WITH_SNAPSHOT:-true}
       ENGINE_LOG_MESSAGES: ${ENGINE_LOG_MESSAGES:-false}
+      # Activity log verbosity: silent | error | warn | info | debug (default info).
+      # info shows orders/trades/cancels/on-ramp/snapshots; debug adds stream recv/ack.
+      ENGINE_LOG_LEVEL: ${ENGINE_LOG_LEVEL:-info}
 
   # ── API ──
   api:
@@ -85,7 +111,9 @@ services:
         condition: service_started
     environment:
       API_PORT: 3000
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-change-this-internal-service-token}
+      # Strong shared default so a fresh `docker compose up` works securely.
+      # OVERRIDE this in .env for any real deployment.
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-a7f3c9e2b5d84061af62c94e0d7b35a1e8c46f9027b3d5a1c8e0f2946b7d3510}
       REDIS_URL: redis://redis:6379
       DB_USER: ${DB_USER:-your_user}
       DB_PASSWORD: ${DB_PASSWORD:-your_password}
@@ -143,7 +171,7 @@ services:
         condition: service_completed_successfully
     environment:
       BASE_URL: http://api:3000
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-change-this-internal-service-token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-a7f3c9e2b5d84061af62c94e0d7b35a1e8c46f9027b3d5a1c8e0f2946b7d3510}
 
   # ── Frontend ──
   frontend:

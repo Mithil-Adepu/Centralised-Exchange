@@ -20,15 +20,11 @@ const KLINE_INTERVALS = [
     { name: "klines_1w", bucket: "1 week" },
 ];
 
-/* ─── Simple bcrypt-compatible hash (SHA-256 + salt) ─── */
-// We use node's built-in crypto (no bcrypt dep in db container).
-// The API uses bcrypt, so we need to pre-hash with bcrypt compatible $2b$ format.
-// Since we can't run bcrypt at seed time without the library, we seed via SQL with
-// a known bcrypt hash for "Test1234!" pre-computed here.
-// bcrypt.hash("Test1234!", 10) = $2a$10$... (hardcoded pre-computed value)
-const TEST_USER_PASSWORD_HASH = "$2a$10$xMnWEYn3DhAQlo3faGclS.xv9R8xsE51ysEN8y8RGzd2jyJOpTsaW";
-// Note: This is a valid bcrypt hash for "Test1234!" with 10 rounds.
-// Generated via: require('bcrypt').hashSync('Test1234!', 10)
+/* ─── Pre-computed bcrypt hash for the seeded demo password "Test1234!" ─── */
+// The db container has no bcrypt dep, so we hardcode a bcrypt hash the API's
+// bcryptjs can verify. Verified: bcryptjs.compareSync("Test1234!", HASH) === true.
+// (The previous hardcoded value did NOT match "Test1234!" — login always failed.)
+const TEST_USER_PASSWORD_HASH = "$2a$10$T0Wyl2KiVY1v.UYI3cnYb.kJTUS/exuFukMIgZtscVH9aawBN.snW";
 
 async function initializeDB() {
     await client.connect();
@@ -112,12 +108,25 @@ async function initializeDB() {
     const revUser = "00000000-0000-0000-0000-000000000007";
     const scalpUser = "00000000-0000-0000-0000-000000000008";
 
+    // Extra human demo profiles — all share the password "Test1234!".
+    // Their UUIDs match the starting balances seeded in engine setBaseBalances().
+    const aliceUser = "00000000-0000-0000-0000-000000000010";
+    const bobUser = "00000000-0000-0000-0000-000000000011";
+    const carolUser = "00000000-0000-0000-0000-000000000012";
+    const trader2User = "00000000-0000-0000-0000-000000000013";
+    const trader3User = "00000000-0000-0000-0000-000000000014";
+
     const usersToInsert = [
         [testUserId, "trader@cex.io"],
         [mmUser, "mm@cex.io"],
         [momUser, "momentum@cex.io"],
         [revUser, "reverter@cex.io"],
         [scalpUser, "scalper@cex.io"],
+        [aliceUser, "alice@cex.io"],
+        [bobUser, "bob@cex.io"],
+        [carolUser, "carol@cex.io"],
+        [trader2User, "trader2@cex.io"],
+        [trader3User, "trader3@cex.io"],
     ];
 
     for (const [id, email] of usersToInsert) {
@@ -135,8 +144,8 @@ async function initializeDB() {
         `, [id]);
     }
 
-    console.log("✅ Test user created: trader@cex.io / Test1234!");
-    console.log(`   UUID: ${testUserId} (Engine user ID: 9)`);
+    console.log("✅ Login profiles created (password: Test1234!):");
+    console.log("   trader@cex.io, trader2@cex.io, trader3@cex.io, alice@cex.io, bob@cex.io, carol@cex.io");
 
     // Trade prices hypertable — renamed to sol_usdc_prices
     await client.query(`
@@ -189,7 +198,12 @@ async function initializeDB() {
             FROM sol_usdc_prices
             GROUP BY bucket, currency_code;
         `);
-        console.log(`Created ${name} materialized view`);
+        // A UNIQUE index is REQUIRED for REFRESH MATERIALIZED VIEW CONCURRENTLY.
+        // Without it, the concurrent refresh throws and the fallback takes an
+        // ACCESS EXCLUSIVE lock that blocks all kline reads during refresh.
+        // (bucket, currency_code) is the natural grouping key and is unique per row.
+        await client.query(`CREATE UNIQUE INDEX ${name}_bucket_ccy_uidx ON ${name} (bucket, currency_code);`);
+        console.log(`Created ${name} materialized view (+ unique index)`);
     }
 
     // Seed 30 days of historical SOL/USDC price data for charts

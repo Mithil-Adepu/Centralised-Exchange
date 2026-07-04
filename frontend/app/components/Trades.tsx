@@ -76,7 +76,7 @@ function TradeRow({ trade }: { trade: Trade }) {
   const isBuy = !trade.isBuyerMaker;
 
   return (
-    <div className="grid grid-cols-3 px-3 py-[3px] text-xs hover:bg-bp-bg-hover/50 transition-colors">
+    <div className="grid grid-cols-3 px-3 py-[3px] text-xs hover:bg-bp-bg-hover transition-colors">
       <div className={cn("tabular-nums", isBuy ? "text-bp-green" : "text-bp-red")}>
         {formatPrice(trade.price, 2)}
       </div>

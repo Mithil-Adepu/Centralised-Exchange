@@ -5,6 +5,7 @@ import { ORDER_UPDATE, TRADE_ADDED } from "../types/index";
 import { CANCEL_ORDER, CREATE_ORDER, GET_BALANCES, GET_DEPTH, GET_OPEN_ORDERS, MessageFromApi, ON_RAMP, GET_TICKERS } from "../types/fromApi";
 import { Fill, Order, Orderbook } from "./Orderbook";
 import { TICKER_UPDATE } from "./events";
+import { elog, short } from "./logger";
 import {
     fromScaledToDecimal,
     multiplyScaled,
@@ -28,6 +29,8 @@ export class Engine {
     private orderbooks: Orderbook[] = [];
     private balances: Map<string, UserBalance> = new Map();
     private lastProcessedStreamId: string = "0-0";
+    // De-dup for on-ramp credits: a replayed ON_RAMP must not mint funds twice.
+    private processedTxns: Set<string> = new Set();
 
     constructor() {
         let snapshot = null
@@ -92,10 +95,17 @@ export class Engine {
             if (snapshotSnapshot.lastProcessedStreamId) {
                 this.lastProcessedStreamId = snapshotSnapshot.lastProcessedStreamId;
             }
+
+            // Restore on-ramp de-dup set so credits stay idempotent across restarts
+            if (Array.isArray(snapshotSnapshot.processedTxns)) {
+                this.processedTxns = new Set(snapshotSnapshot.processedTxns);
+            }
         } else {
             this.orderbooks = [new Orderbook(`SOL`, [], [], 0, 0)];
             this.setBaseBalances();
         }
+        elog.info("ENGINE", `Ready — ${this.orderbooks.length} orderbook(s) [${this.orderbooks.map(o => o.ticker()).join(", ")}], ${this.balances.size} balance account(s)${snapshot ? " (restored from snapshot)" : " (fresh state)"}, resumeOffset=${this.lastProcessedStreamId}`);
+
         // Snapshot every 30s — only if data changed.
         // _dirty is cleared BEFORE saveSnapshot() so any trades arriving
         // during the async disk write will set _dirty=true again and be
@@ -121,27 +131,29 @@ export class Engine {
         return this.lastProcessedStreamId;
     }
 
-    saveSnapshot() {
+    /**
+     * Persist full engine state via atomic tmp-write + rename.
+     * Returns a Promise so callers (notably graceful shutdown) can AWAIT completion —
+     * previously this used fire-and-forget callbacks and `process.exit` raced the write,
+     * so the shutdown snapshot was routinely lost despite logging "saved".
+     */
+    async saveSnapshot(): Promise<void> {
         const snapshotData = {
             version: SNAPSHOT_VERSION,
             lastProcessedStreamId: this.lastProcessedStreamId,
             orderbooks: this.orderbooks.map(o => o.getSnapshot()),
-            balances: Array.from(this.balances.entries())
+            balances: Array.from(this.balances.entries()),
+            processedTxns: Array.from(this.processedTxns)
         };
         const tmpFile = "./snapshot.tmp.json";
-        fs.writeFile(tmpFile, JSON.stringify(snapshotData), (err) => {
-            if (err) {
-                console.error("Snapshot write error:", err);
-                this._dirty = true; // Mark dirty again so next interval retries
-                return;
-            }
-            fs.rename(tmpFile, "./snapshot.json", (renameErr) => {
-                if (renameErr) {
-                    console.error("Snapshot rename error:", renameErr);
-                    this._dirty = true; // Mark dirty again so next interval retries
-                }
-            });
-        });
+        try {
+            await fs.promises.writeFile(tmpFile, JSON.stringify(snapshotData));
+            await fs.promises.rename(tmpFile, "./snapshot.json");
+            elog.info("SNAPSHOT", `saved — offset=${this.lastProcessedStreamId}, orderbooks=${this.orderbooks.length}, accounts=${this.balances.size}`);
+        } catch (err) {
+            console.error("Snapshot save error:", err);
+            this._dirty = true; // Mark dirty again so next interval retries
+        }
     }
 
     process({ message, clientId }: { message: MessageFromApi, clientId: string }) {
@@ -158,7 +170,7 @@ export class Engine {
                         }
                     });
                 } catch (e: any) {
-                    console.log(e);
+                    elog.warn("ORDER", `REJECTED ${message.data.side} ${message.data.quantity} ${message.data.market} @ ${message.data.price} user=${short(message.data.userId)}: ${e?.message || e}`);
                     RedisManager.getInstance().sendToApi(clientId, {
                         type: "ORDER_REJECTED",
                         payload: {
@@ -247,6 +259,8 @@ export class Engine {
                     // Send real-time depth update after order cancellation
                     this.publishWsDepthUpdate(cancelMarket);
 
+                    elog.info("CANCEL", `order=${short(orderId)} ${order.side.toUpperCase()} ${cancelMarket} unlocked=${fromScaledToDecimal(remainingQty)} (${order.side === "buy" ? quoteAsset : baseAsset}) user=${short(requestUserId)}`);
+
                     RedisManager.getInstance().sendToApi(clientId, {
                         type: "ORDER_CANCELLED",
                         payload: {
@@ -257,7 +271,7 @@ export class Engine {
                     });
 
                 } catch (e: any) {
-                    console.log("Error while cancelling order:", e?.message || e);
+                    elog.error("CANCEL", `rejected: ${e?.message || e}`);
                     RedisManager.getInstance().sendToApi(clientId, {
                         type: "CANCEL_ORDER_REJECTED",
                         payload: {
@@ -287,14 +301,25 @@ export class Engine {
                         payload: openOrders
                     });
                 } catch (e) {
-                    console.log(e);
+                    elog.error("OPEN_ORDERS", `${(e as Error)?.message || e}`);
+                    // Always reply — otherwise the API's sendAndAwait blocks for 10s.
+                    RedisManager.getInstance().sendToApi(clientId, {
+                        type: "OPEN_ORDERS",
+                        payload: []
+                    });
                 }
                 break;
             case ON_RAMP:
                 try {
                     const userId = message.data.userId;
                     const amount = message.data.amount;
-                    this.onRamp(userId, amount);
+                    const credited = this.onRamp(userId, amount, message.data.txnId);
+
+                    if (credited) {
+                        elog.info("ONRAMP", `+${amount} ${BASE_CURRENCY} user=${short(userId)}${message.data.txnId ? ` txn=${short(message.data.txnId)}` : ""}`);
+                    } else {
+                        elog.warn("ONRAMP", `duplicate txn=${short(message.data.txnId)} ignored (already credited)`);
+                    }
 
                     RedisManager.getInstance().sendToApi(clientId, {
                         type: "ON_RAMP_SUCCESS",
@@ -419,6 +444,8 @@ export class Engine {
             throw new Error("No orderbook found");
         }
 
+        elog.info("ORDER", `RECV ${side.toUpperCase()} ${quantity} ${market} @ ${price} user=${short(userId)}`);
+
         // Input validation
         const numPrice = toScaledFromDecimal(price);
         const numQuantity = toScaledFromDecimal(quantity);
@@ -451,7 +478,21 @@ export class Engine {
         };
 
         const { fills, executedQty } = orderbook.addOrder(order);
-        this.updateBalance(userId, baseAsset, quoteAsset, side, fills, executedQty);
+        this.updateBalance(userId, baseAsset, quoteAsset, side, fills, executedQty, numPrice);
+
+        // ── Activity logging: each fill/trade, then the order's final disposition ──
+        for (const fill of fills) {
+            elog.info("TRADE", `#${fill.tradeId} ${fromScaledToDecimal(fill.qty)} ${market} @ ${fromScaledToDecimal(fill.price)} taker=${short(userId)}(${side}) maker=${short(fill.otherUserId)}`);
+        }
+        const execDecimal = fromScaledToDecimal(executedQty);
+        const remaining = numQuantity - executedQty;
+        if (remaining <= 0) {
+            elog.info("ORDER", `FILLED order=${short(order.orderId)} executed=${execDecimal} ${market}`);
+        } else if (executedQty > 0) {
+            elog.info("BOOK", `PARTIAL+REST order=${short(order.orderId)} executed=${execDecimal}, resting=${fromScaledToDecimal(remaining)} ${market} @ ${price}`);
+        } else {
+            elog.info("BOOK", `RESTED ${side.toUpperCase()} ${quantity} ${market} @ ${price} order=${short(order.orderId)}`);
+        }
 
         this.createDbTrades(fills, market, side);
         this.updateDbOrders(order, executedQty, fills, market);
@@ -607,15 +648,24 @@ export class Engine {
         return userBal[asset];
     }
 
-    updateBalance(userId: string, baseAsset: string, quoteAsset: string, side: "buy" | "sell", fills: Fill[], executedQty: number) {
+    updateBalance(userId: string, baseAsset: string, quoteAsset: string, side: "buy" | "sell", fills: Fill[], executedQty: number, limitPrice: number) {
         if (side === "buy") {
             fills.forEach(fill => {
                 const fillValue = multiplyScaled(fill.qty, fill.price);
+                // Funds were locked at the buyer's LIMIT price (qty × limitPrice).
+                // When a fill executes at a better maker price, the difference must be
+                // returned to available — otherwise it stays locked forever (fund leak).
+                const lockedForFill = multiplyScaled(fill.qty, limitPrice);
+                const improvement = lockedForFill - fillValue; // >= 0 for a buy
 
-                // Seller receives quote currency
+                // Seller receives quote currency (at execution price)
                 this.getOrInitBalance(fill.otherUserId, quoteAsset).available += fillValue;
-                // Buyer's locked quote currency decreases
-                this.getOrInitBalance(userId, quoteAsset).locked -= fillValue;
+                // Buyer's locked quote currency releases the full amount locked for this qty
+                this.getOrInitBalance(userId, quoteAsset).locked -= lockedForFill;
+                // Buyer gets the price-improvement refunded to available
+                if (improvement !== 0) {
+                    this.getOrInitBalance(userId, quoteAsset).available += improvement;
+                }
                 // Seller's locked base asset decreases
                 this.getOrInitBalance(fill.otherUserId, baseAsset).locked -= fill.qty;
                 // Buyer receives base asset
@@ -662,13 +712,26 @@ export class Engine {
         }
     }
 
-    onRamp(userId: string, amount: string | number) {
+    /**
+     * Credit a user's base-currency balance. Idempotent when a txnId is supplied:
+     * a replayed message with the same txnId is ignored so funds are never minted
+     * twice (crash-recovery / at-least-once delivery safety).
+     * @returns true if credited, false if skipped as a duplicate.
+     */
+    onRamp(userId: string, amount: string | number, txnId?: string): boolean {
+        if (txnId && this.processedTxns.has(txnId)) {
+            return false;
+        }
         const scaledAmount = toScaledFromDecimal(amount.toString());
         if (!Number.isFinite(scaledAmount) || scaledAmount <= 0) {
             throw new Error("Invalid on-ramp amount");
         }
         const baseBalance = this.getOrInitBalance(userId, BASE_CURRENCY);
         baseBalance.available += scaledAmount;
+        if (txnId) {
+            this.processedTxns.add(txnId);
+        }
+        return true;
     }
 
     setBaseBalances() {
@@ -728,6 +791,43 @@ export class Engine {
                 locked: 0
             }
         });
+
+        // Human demo login profiles (alice/bob/carol) — see db seed.
+        // Each starts with 500K USDC + 5K SOL so they can trade immediately.
+        for (const demoUserId of [
+            "00000000-0000-0000-0000-000000000010", // alice@cex.io
+            "00000000-0000-0000-0000-000000000011", // bob@cex.io
+            "00000000-0000-0000-0000-000000000012", // carol@cex.io
+        ]) {
+            this.balances.set(demoUserId, {
+                [BASE_CURRENCY]: {
+                    available: scaleFromNumber(500000),
+                    locked: 0
+                },
+                "SOL": {
+                    available: scaleFromNumber(5000),
+                    locked: 0
+                }
+            });
+        }
+
+        // trader2 / trader3 — mirror trader@cex.io (1M USDC + 10K SOL) for
+        // testing order matching between two well-funded live accounts.
+        for (const traderUserId of [
+            "00000000-0000-0000-0000-000000000013", // trader2@cex.io
+            "00000000-0000-0000-0000-000000000014", // trader3@cex.io
+        ]) {
+            this.balances.set(traderUserId, {
+                [BASE_CURRENCY]: {
+                    available: scaleFromNumber(1000000),
+                    locked: 0
+                },
+                "SOL": {
+                    available: scaleFromNumber(10000),
+                    locked: 0
+                }
+            });
+        }
     }
 
     updateTicker(market: string, fills: Fill[]) {
@@ -818,7 +918,10 @@ export class Engine {
             data: {
                 b: depth?.bids || [],
                 a: depth?.asks || [],
-                e: "depth"
+                e: "depth",
+                // Full book — tells clients to REPLACE local state, not merge,
+                // so levels removed server-side (e.g. on cancel) don't linger.
+                snapshot: true
             }
         });
     }

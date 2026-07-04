@@ -37,8 +37,9 @@ tradesRouter.get("/", publicReadLimiter, async (req, res) => {
 
     try {
         const query = `
-            SELECT 
+            SELECT
                 time,
+                trade_id,
                 price,
                 volume as quantity,
                 currency_code as market,
@@ -48,10 +49,10 @@ tradesRouter.get("/", publicReadLimiter, async (req, res) => {
             ORDER BY time DESC
             LIMIT $2
         `;
-        
+
         const result = await pool.query(query, [normalizedMarket, limit]);
-        
-        const trades = result.rows.map((row, idx) => {
+
+        const trades = result.rows.map((row) => {
             const price = Number(row.price);
             const quantity = Number(row.quantity);
             const quoteQuantity = Number.isFinite(price) && Number.isFinite(quantity)
@@ -59,7 +60,9 @@ tradesRouter.get("/", publicReadLimiter, async (req, res) => {
                 : "0";
 
             return {
-                id: idx,
+                // Stable trade id from the DB — not a per-response array index
+                // (an index breaks client dedup/keys as new trades arrive).
+                id: row.trade_id,
                 price: row.price.toString(),
                 quantity: row.quantity.toString(),
                 quoteQuantity,

@@ -1,4 +1,4 @@
-import { WS_RECONNECT_DELAY, WS_MAX_RECONNECT_ATTEMPTS } from "../lib/constants";
+import { WS_RECONNECT_DELAY } from "../lib/constants";
 import { getWsTicket, isAuthenticated } from "./httpClient";
 import { Trade } from "./types";
 
@@ -61,7 +61,10 @@ export class SignalingManager {
     private reconnectAttempts: number = 0;
     private reconnectTimeout: NodeJS.Timeout | null = null;
     private shouldReconnect: boolean = true;
-    private subscriptions: Set<string> = new Set();
+    // Per-stream reference count: multiple components can share a stream, so we only
+    // send SUBSCRIBE on the first subscriber (0->1) and UNSUBSCRIBE on the last (1->0).
+    // A plain Set let one component's unmount kill the feed for every other consumer.
+    private subscriptions: Map<string, number> = new Map();
 
     private constructor() {
         this.id = 1;
@@ -180,17 +183,24 @@ export class SignalingManager {
     }
 
     private handleReconnect() {
-        if (!this.shouldReconnect || this.reconnectAttempts >= WS_MAX_RECONNECT_ATTEMPTS) {
-            log('🛑 Max reconnection attempts reached or reconnection disabled');
-            return;
+        if (!this.shouldReconnect) {
+            return; // Intentional teardown — don't reconnect.
+        }
+        if (this.reconnectTimeout) {
+            return; // A reconnect is already scheduled.
         }
 
         this.reconnectAttempts++;
-        log(`🔄 Attempting to reconnect (${this.reconnectAttempts}/${WS_MAX_RECONNECT_ATTEMPTS})...`);
+        // Exponential backoff capped at 30s. We never give up permanently: a hard
+        // stop left the live UI silently frozen with no path to recover. This way
+        // the UI heals automatically once the WS server is reachable again.
+        const delay = Math.min(WS_RECONNECT_DELAY * Math.pow(2, Math.min(this.reconnectAttempts - 1, 5)), 30_000);
+        log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})...`);
 
         this.reconnectTimeout = setTimeout(() => {
+            this.reconnectTimeout = null;
             this.connect();
-        }, WS_RECONNECT_DELAY);
+        }, delay);
     }
 
     private async authenticateSocket() {
@@ -216,8 +226,10 @@ export class SignalingManager {
         });
         this.bufferedMessages = [];
 
-        this.subscriptions.forEach((sub) => {
-            this.ws?.send(JSON.stringify({ method: "SUBSCRIBE", params: [sub] }));
+        this.subscriptions.forEach((count, sub) => {
+            if (count > 0) {
+                this.ws?.send(JSON.stringify({ method: "SUBSCRIBE", params: [sub] }));
+            }
         });
     }
 
@@ -229,22 +241,36 @@ export class SignalingManager {
     }
 
     public sendMessage(message: any) {
-        const messageWithId = { ...message, id: this.id++ };
-
         const isSubscribe = message.method === "SUBSCRIBE" && message.params?.[0];
         const isUnsubscribe = message.method === "UNSUBSCRIBE" && message.params?.[0];
 
+        // Reference-count shared streams so a component unmount doesn't tear down
+        // a feed other mounted components still need.
         if (isSubscribe) {
-            this.subscriptions.add(message.params[0]);
+            const stream = message.params[0];
+            const count = (this.subscriptions.get(stream) || 0) + 1;
+            this.subscriptions.set(stream, count);
+            if (count > 1) {
+                return; // Already subscribed for another consumer.
+            }
         } else if (isUnsubscribe) {
-            this.subscriptions.delete(message.params[0]);
+            const stream = message.params[0];
+            const count = (this.subscriptions.get(stream) || 0) - 1;
+            if (count > 0) {
+                this.subscriptions.set(stream, count);
+                return; // Other consumers still need this stream.
+            }
+            this.subscriptions.delete(stream);
         }
+
+        const messageWithId = { ...message, id: this.id++ };
 
         if (!this.initialized || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
             if (!isSubscribe && !isUnsubscribe) {
                 log('⏳ WebSocket not ready, buffering message:', messageWithId);
                 this.bufferedMessages.push(messageWithId);
             }
+            // Subscriptions are re-sent from the ref-count map on (re)connect.
             return;
         }
 

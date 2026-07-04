@@ -5,10 +5,9 @@ import { AuthRedis } from "./AuthRedis";
 import { EmailService } from "./EmailService";
 import {
     assignRole,
-    countSessionsByUser,
-    createSession,
+    consumeSession,
+    createSessionWithLimit,
     createUser,
-    deleteOldestSessions,
     deleteSession,
     getActiveSessions,
     getSessionById,
@@ -216,21 +215,29 @@ export class AuthService {
             throw new Error("Invalid refresh token");
         }
 
-        const session = await getSessionById(claims.sid);
+        // Atomic rotation: consume the session ONLY if the refresh-token hash
+        // matches. This compare-and-swap prevents a double-spend when a client
+        // fires two refreshes concurrently — only one DELETE can win.
+        const consumedUserId = await consumeSession(claims.sid, hashToken(refreshToken));
 
-        if (!session || session.userId !== claims.sub) {
+        if (!consumedUserId) {
+            // Either the session is gone/expired, or the hash didn't match.
+            // If the session still exists with a different hash, this is a reused
+            // (possibly stolen) token — revoke the session as a safety measure.
+            const stale = await getSessionById(claims.sid);
+            if (stale) {
+                await deleteSession(claims.sid);
+                throw new Error("Refresh token reuse detected — session revoked");
+            }
             throw new Error("Refresh session not found");
         }
 
-        if (session.refreshTokenHash !== hashToken(refreshToken)) {
-            // Token mismatch — possible token theft. Revoke the session.
-            await deleteSession(claims.sid);
-            throw new Error("Refresh token mismatch — session revoked");
+        if (consumedUserId !== claims.sub) {
+            throw new Error("Refresh session not found");
         }
 
         const user = await getUserById(claims.sub);
         if (!user) {
-            await deleteSession(claims.sid);
             throw new Error("User not found");
         }
 
@@ -238,8 +245,7 @@ export class AuthService {
 
         const roles = await getUserRoles(user.id);
 
-        // Rotate: delete old session, issue new tokens
-        await deleteSession(claims.sid);
+        // Session already consumed above — just issue the new token pair.
         const tokens = await this.issueTokens(user, roles, meta);
 
         return {
@@ -314,7 +320,9 @@ export class AuthService {
 
         const client = await AuthRedis.getInstance().getClient();
         await client.set(this.otpKey(normalizedEmail, "verify"), otp, { EX: OTP_TTL_SECONDS });
-        await client.del(this.otpAttemptsKey(normalizedEmail, "verify"));
+        // NOTE: deliberately do NOT reset the attempts counter here. Resetting it on
+        // every resend let an attacker refresh their guess budget indefinitely
+        // (amplified brute force). The counter expires on its own window instead.
 
         await emailService.sendOTP(normalizedEmail, otp, "verify");
         return { sent: true };
@@ -376,7 +384,7 @@ export class AuthService {
 
         const client = await AuthRedis.getInstance().getClient();
         await client.set(this.otpKey(normalizedEmail, "reset"), otp, { EX: OTP_TTL_SECONDS });
-        await client.del(this.otpAttemptsKey(normalizedEmail, "reset"));
+        // Deliberately do NOT reset the attempts counter on resend (see verify path).
 
         await emailService.sendOTP(normalizedEmail, otp, "reset");
         return { sent: true };
@@ -473,22 +481,20 @@ export class AuthService {
         );
 
         const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000);
-        await createSession({
+        // Create the session and enforce the concurrent-session limit atomically
+        // in one transaction — avoids the TOCTOU race where parallel logins each
+        // insert-then-count and exceed MAX_SESSIONS_PER_USER.
+        const evicted = await createSessionWithLimit({
             sessionId,
             userId: user.id,
             refreshTokenHash: hashToken(refreshToken),
             expiresAt,
             ipAddress: meta?.ip,
             userAgent: meta?.userAgent,
-        });
+        }, MAX_SESSIONS_PER_USER);
 
-        // Enforce concurrent session limit — evict oldest if over limit
-        const sessionCount = await countSessionsByUser(user.id);
-        if (sessionCount > MAX_SESSIONS_PER_USER) {
-            const evicted = await deleteOldestSessions(user.id, MAX_SESSIONS_PER_USER);
-            if (evicted > 0) {
-                console.log(`[AUTH] Evicted ${evicted} oldest session(s) for user ${user.id} (limit: ${MAX_SESSIONS_PER_USER})`);
-            }
+        if (evicted > 0) {
+            console.log(`[AUTH] Evicted ${evicted} oldest session(s) for user ${user.id} (limit: ${MAX_SESSIONS_PER_USER})`);
         }
 
         return {

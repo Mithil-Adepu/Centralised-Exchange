@@ -52,6 +52,22 @@ export function Depth({ market }: { market: string }) {
     SignalingManager.getInstance().registerCallback(
       depthStream,
       (data: any) => {
+        // Full-book snapshot (e.g. after a cancel): replace state so levels
+        // removed server-side don't linger. Otherwise merge the delta.
+        if (data.snapshot) {
+          setBids(
+            [...(data.b || [])]
+              .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
+              .slice(0, ORDER_BOOK_ROWS)
+          );
+          setAsks(
+            [...(data.a || [])]
+              .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
+              .slice(0, ORDER_BOOK_ROWS)
+          );
+          return;
+        }
+
         setBids((prev) => {
           const updated = [...(prev || [])];
           data.b?.forEach(([p, q]: [string, string]) => {

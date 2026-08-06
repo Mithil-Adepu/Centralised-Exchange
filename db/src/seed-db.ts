@@ -160,8 +160,9 @@ async function initializeDB() {
             PRIMARY KEY (time, trade_id)
         );
         SELECT create_hypertable('sol_usdc_prices', 'time');
+        SELECT add_retention_policy('sol_usdc_prices', INTERVAL '30 days');
     `);
-    console.log("Created sol_usdc_prices hypertable");
+    console.log("Created sol_usdc_prices hypertable with 30-day retention policy");
 
     // Orders table
     await client.query(`

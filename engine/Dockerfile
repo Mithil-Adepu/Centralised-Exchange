@@ -25,8 +25,6 @@ COPY --from=builder /build/engine/dist ./dist
 COPY --from=builder /build/engine/node_modules ./node_modules
 COPY --from=builder /build/engine/package.json ./
 
-# Copy snapshot if present (wildcard avoids failure if missing)
-COPY engine/snapshot.jso[n] ./
 
 ENV WITH_SNAPSHOT=true
 

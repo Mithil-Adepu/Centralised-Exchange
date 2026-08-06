@@ -64,7 +64,7 @@ function setRefreshCookie(res: any, token: string, maxAgeSeconds: number) {
         `${REFRESH_COOKIE_NAME}=${encodeURIComponent(token)}`,
         "HttpOnly",
         "Path=/api/v1/auth",
-        "SameSite=Strict",
+        "SameSite=None",
         "Priority=High",
         `Max-Age=${maxAgeSeconds}`,
     ];
@@ -82,7 +82,8 @@ function clearRefreshCookie(res: any) {
         `${REFRESH_COOKIE_NAME}=`,
         "HttpOnly",
         "Path=/api/v1/auth",
-        "SameSite=Strict",
+        "Path=/api/v1/auth",
+        "SameSite=None",
         "Priority=High",
         "Max-Age=0",
     ];
